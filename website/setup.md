@@ -54,6 +54,25 @@ downloads and serves. The app itself is lightweight; local model serving is the
 heavy part and depends on the model, runtime, GPU, and VRAM, so small hosts can
 connect to API or remote model servers instead. Use `--host 0.0.0.0` only when you intentionally want LAN/reverse-proxy access.
 
+#### Native Linux systemd service
+
+Run this after the native setup, as the dedicated unprivileged Linux user that
+will run Odysseus:
+
+```bash
+./install-service.sh
+systemctl --user status odysseus-ui.service
+journalctl --user -u odysseus-ui.service -f
+```
+
+The installer writes user units to `~/.config/systemd/user/`, uses the existing
+`.env` file, and binds the app to `127.0.0.1`. To keep it running after logout,
+run this once as a host administrator:
+
+```bash
+sudo loginctl enable-linger "$USER"
+```
+
 ### Apple Silicon
 Docker on macOS cannot use the Metal GPU. For GPU-accelerated Cookbook on an
 M-series Mac, run Odysseus natively:

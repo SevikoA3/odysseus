@@ -1,0 +1,11 @@
+[Unit]
+Description=Odysseus native update
+Wants=network-online.target
+After=network-online.target odysseus-ui.service
+ConditionPathExists=@REPOSITORY@/scripts/update_odysseus
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPOSITORY@
+EnvironmentFile=-@REPOSITORY@/.env
+ExecStart=/usr/bin/flock -n "@REPOSITORY@/data/odysseus-update.lock" /bin/sh -c 'exec "@REPOSITORY@/scripts/update_odysseus"'

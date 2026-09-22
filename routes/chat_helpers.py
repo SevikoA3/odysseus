@@ -58,7 +58,12 @@ def _project_rag_available(chat_processor) -> bool:
     return bool(vector_rag and getattr(vector_rag, "healthy", False))
 
 
-def _project_file_fallbacks(project_files, upload_handler, owner: Optional[str]) -> list[dict]:
+def _project_file_fallbacks(
+    project_files,
+    upload_handler,
+    owner: Optional[str],
+    query: str = "",
+) -> list[dict]:
     if upload_handler is None:
         return []
     from src.personal_docs import extract_document_text, split_chunks
@@ -80,13 +85,23 @@ def _project_file_fallbacks(project_files, upload_handler, owner: Optional[str])
                         "upload_id": project_file["upload_id"],
                     },
                 })
-                if len(chunks) == 5:
-                    return chunks
         except Exception:
             logger.warning(
                 "Failed to read project upload %s", project_file["upload_id"], exc_info=True,
             )
-    return chunks
+    terms = set(re.findall(r"[\w'-]+", query.casefold()))
+    if not terms:
+        return chunks[:5]
+    return [
+        chunk
+        for _, chunk in sorted(
+            enumerate(chunks),
+            key=lambda item: (
+                -sum(term in item[1]["document"].casefold() for term in terms),
+                item[0],
+            ),
+        )[:5]
+    ]
 
 
 # Strong references to in-flight fire-and-forget tasks scheduled from this
@@ -779,6 +794,7 @@ async def build_chat_context(
             project_files,
             getattr(chat_handler, "upload_handler", None),
             user,
+            context_message,
         )
 
     # If pre-fetched search context was provided (compare mode), skip live web search

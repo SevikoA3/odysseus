@@ -170,3 +170,29 @@ def test_project_file_fallback_is_capped_and_skips_corrupt_uploads(tmp_path):
 
     assert len(chunks) == 5
     assert all(chunk["metadata"]["filename"] == "good.txt" for chunk in chunks)
+
+
+def test_project_file_fallback_prefers_matching_storyboard_chunk(tmp_path):
+    master = tmp_path / "master.md"
+    scenario = tmp_path / "scenario.md"
+    treatment = tmp_path / "treatment.md"
+    master.write_text("General production guide. " * 800, encoding="utf-8")
+    scenario.write_text("Character dialogue. " * 800, encoding="utf-8")
+    treatment.write_text("Scene 6 Shot 11 Start Frame: sunrise over the forest. " * 800, encoding="utf-8")
+
+    class Uploads:
+        def resolve_upload(self, upload_id, **_kwargs):
+            return {"path": {"master": master, "scenario": scenario, "treatment": treatment}[upload_id]}
+
+    chunks = _project_file_fallbacks(
+        [
+            {"upload_id": "master", "filename": "master.md"},
+            {"upload_id": "scenario", "filename": "scenario.md"},
+            {"upload_id": "treatment", "filename": "treatment.md"},
+        ],
+        Uploads(),
+        "alice",
+        "create prompt scene 6 shot 11 start frame",
+    )
+
+    assert chunks[0]["metadata"]["filename"] == "treatment.md"

@@ -3675,6 +3675,7 @@ const sessionModule = {
   loadSessions,
   selectSession,
   createDirectChat,
+  createProjectChat,
   materializePendingSession,
   preMaterializePendingSession,
   hasPendingChat,

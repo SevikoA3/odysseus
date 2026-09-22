@@ -1,0 +1,16 @@
+[Unit]
+Description=Odysseus UI
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@REPOSITORY@
+EnvironmentFile=-@REPOSITORY@/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart="@VENV_PYTHON@" -m uvicorn app:app --host 127.0.0.1 --port 7000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
