@@ -784,6 +784,8 @@ function createSessionItem(s) {
   const folderItem = buildFolderSubmenu(s.id, s.folder, dropdown);
   dropdown.appendChild(copyItem);
   dropdown.appendChild(folderItem);
+  const projectItems = window.projectsModule?.sessionMenuItems?.(s) || [];
+  projectItems.forEach(item => dropdown.appendChild(item));
 
   // Separator before destructive actions
   const _sep = document.createElement('div');
@@ -1939,6 +1941,7 @@ export async function selectSession(id, { keepSidebar = false, showLoading = tru
     if (currentMetaEl) {
       currentMetaEl.textContent = meta ? meta.name : 'Odysseus Chat';
     }
+    window.projectsModule?.syncSessionProject?.(meta?.project_id || null);
     // Update model picker visibility
     updateModelPicker();
     if (window.refreshChatContextHeader) window.refreshChatContextHeader('select-session');
@@ -2220,7 +2223,7 @@ export function createDirectChat(url, modelId, endpointId, opts = {}) {
   }
 
   // Don't hit the API — just store the model info and prepare the UI
-  _pendingChat = { url, modelId, endpointId, source: incomingSource };
+  _pendingChat = { url, modelId, endpointId, source: incomingSource, projectId: opts.projectId || null };
   _pendingMaterializePromise = null;
   _skipAutoSelect = true;
   _suppressNextSessionLoading = true;
@@ -2254,6 +2257,7 @@ export function createDirectChat(url, modelId, endpointId, opts = {}) {
   // Update model picker to show the pending model
   updateModelPicker();
   if (window.refreshChatContextHeader) window.refreshChatContextHeader('new-chat');
+  window.projectsModule?.syncSessionProject?.(_pendingChat.projectId);
 
   // Update current-meta header
   const metaEl = document.getElementById('current-meta');
@@ -2268,6 +2272,17 @@ export function createDirectChat(url, modelId, endpointId, opts = {}) {
     _clearComposerUnlessStartupTyped(msgInput);
     msgInput.focus();
   }
+}
+
+export async function createProjectChat(projectId) {
+  const chat = await _getPreferredDefaultChat();
+  if (!chat?.endpoint_url || !chat?.model) {
+    throw new Error('Choose a default chat model first');
+  }
+  createDirectChat(chat.endpoint_url, chat.model, chat.endpoint_id, {
+    source: 'project',
+    projectId,
+  });
 }
 
 /** Actually create the session in the DB. Called on first message send. */
@@ -2293,6 +2308,7 @@ export async function materializePendingSession() {
     if (pending.endpointId) {
       fd.append('endpoint_id', pending.endpointId);
     }
+    if (pending.projectId) fd.append('project_id', pending.projectId);
 
     let res;
     try {
@@ -2334,6 +2350,7 @@ export async function materializePendingSession() {
     }
     _pendingChat = null;
     currentSessionId = payload.id;
+    window.projectsModule?.syncSessionProject?.(pending.projectId);
     if (!isIncognito) {
       Storage.set('lastSessionId', payload.id);
       history.replaceState(null, '', '#' + payload.id);
@@ -2410,6 +2427,7 @@ export function setCurrentSessionId(id) {
     _suppressNextSessionLoading = true;
     Storage.remove('lastSessionId');
     history.replaceState(null, '', window.location.pathname);
+    window.projectsModule?.syncSessionProject?.(null);
     document.querySelectorAll('.list-item.active-session, .session-item.active').forEach(el => {
       el.classList.remove('active-session', 'active');
     });

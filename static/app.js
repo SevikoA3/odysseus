@@ -24,6 +24,7 @@ import {
 import markdownModule from './js/markdown.js';
 import chatRenderer from './js/chatRenderer.js?v=20260819approvalcontrol1';
 import sessionModule from './js/sessions.js';
+import projectsModule from './js/projects.js';
 import memoryModule from './js/memory.js?v=20260722memoryloading1';
 import voiceRecorderModule from './js/voiceRecorder.js';
 import censorModule from './js/censor.js';
@@ -57,6 +58,7 @@ import { initSectionCollapse, initSectionDrag } from './js/section-management.js
 const API_BASE = window.location.origin;
 window.themeModule = themeModule;
 window.sessionModule = sessionModule;
+window.projectsModule = projectsModule;
 window.uiModule = uiModule;
 window.adminModule = adminModule;
 window.cookbookModule = cookbookModule;
@@ -4296,6 +4298,7 @@ function startOdysseusApp() {
       renderContent: markdownModule.renderContent,
       scrollHistory: uiModule.scrollHistoryInstant
     });
+    projectsModule.init(sessionModule);
 
     // sessionModule is now wired, so every route opener has the modules it
     // drives. The ones that read no session data open here rather than

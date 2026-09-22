@@ -685,6 +685,7 @@ export function styledPrompt(message, {
   confirmText = 'Save',
   cancelText = 'Cancel',
   maxLength = 80,
+  required = false,
 } = {}) {
   return new Promise(resolve => {
     let overlay = document.getElementById('styled-prompt-overlay');
@@ -719,6 +720,7 @@ export function styledPrompt(message, {
     input.value = defaultValue || '';
     input.placeholder = placeholder || '';
     input.maxLength = maxLength;
+    input.required = required;
     okBtn.textContent = confirmText;
     cancelBtn.textContent = cancelText;
 
@@ -738,7 +740,10 @@ export function styledPrompt(message, {
       try { _prevFocus && _prevFocus.focus && _prevFocus.focus(); } catch {}
       resolve(result);
     }
-    function onOk() { cleanup((input.value || '').trim()); }
+    function onOk() {
+      if (!input.reportValidity()) return;
+      cleanup((input.value || '').trim());
+    }
     function onCancel() { cleanup(null); }
     function onBackdrop(e) { if (e.target === overlay) cleanup(null); }
     function onKey(e) {

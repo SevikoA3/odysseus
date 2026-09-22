@@ -274,52 +274,52 @@ Target branch for VM updates: `main`
 
 ### Module and navigation
 
-- [ ] Add `static/js/projects.js`.
-- [ ] Import and initialize it from `static/app.js`.
-- [ ] Add a Projects section to the existing sidebar in `static/index.html`.
-- [ ] Match existing sidebar, modal, menu, button, focus, and toast patterns.
-- [ ] Do not redesign the sidebar or introduce a new component system.
+- [x] Add `static/js/projects.js`.
+- [x] Import and initialize it from `static/app.js`.
+- [x] Add a Projects section to the existing sidebar in `static/index.html`.
+- [x] Match existing sidebar, modal, menu, button, focus, and toast patterns.
+- [x] Do not redesign the sidebar or introduce a new component system.
 
 ### Project operations
 
-- [ ] Add create project action.
-- [ ] Add rename project action.
-- [ ] Add edit instructions action.
-- [ ] Add delete project confirmation explaining that chats will be detached.
-- [ ] Add project detail view with instructions, files, and chats.
-- [ ] Add project file upload through existing `/api/upload`.
-- [ ] Add project file removal.
-- [ ] Add New Chat inside project.
-- [ ] Add Move to project in the existing session menu.
-- [ ] Add Remove from project in the existing session menu.
-- [ ] Show current project identity in the chat header without adding decorative UI.
+- [x] Add create project action.
+- [x] Add rename project action.
+- [x] Add edit instructions action.
+- [x] Add delete project confirmation explaining that chats will be detached.
+- [x] Add project detail view with instructions, files, and chats.
+- [x] Add project file upload through existing `/api/upload`.
+- [x] Add project file removal.
+- [x] Add New Chat inside project.
+- [x] Add Move to project in the existing session menu.
+- [x] Add Remove from project in the existing session menu.
+- [x] Show current project identity in the chat header without adding decorative UI.
 
 ### Required states
 
-- [ ] Add empty project state.
-- [ ] Add empty file state.
-- [ ] Add loading state.
-- [ ] Add upload and API error states.
-- [ ] Disable repeated actions while requests are pending.
-- [ ] Preserve keyboard navigation and visible focus.
-- [ ] Verify mobile sidebar and modal layout.
-- [ ] Escape all project names, filenames, and server-provided text before rendering.
+- [x] Add empty project state.
+- [x] Add empty file state.
+- [x] Add loading state.
+- [x] Add upload and API error states.
+- [x] Disable repeated actions while requests are pending.
+- [x] Preserve keyboard navigation and visible focus.
+- [x] Verify mobile sidebar and modal layout.
+- [x] Escape all project names, filenames, and server-provided text before rendering.
 
 ### Verification
 
-- [ ] Run `rtk node --check static/js/projects.js`.
-- [ ] Run syntax checks for every changed JavaScript file.
-- [ ] Add focused JavaScript tests where current test helpers support the touched behavior.
-- [ ] Manually create, rename, edit, and delete a project.
-- [ ] Manually upload and remove a project file.
-- [ ] Manually move a chat into and out of a project.
-- [ ] Verify desktop and mobile layouts.
+- [x] Run `rtk node --check static/js/projects.js`.
+- [x] Run syntax checks for every changed JavaScript file.
+- [x] Add focused JavaScript tests where current test helpers support the touched behavior. No current generic DOM helper covers this module.
+- [x] Manually create, rename, edit, and delete a project.
+- [x] Manually upload and remove a project file.
+- [x] Manually move a chat into and out of a project.
+- [x] Verify desktop and mobile layouts.
 
 ### Phase gate
 
-- [ ] Every visible control works.
-- [ ] Empty, loading, success, and error states are usable.
-- [ ] Existing chats and folders remain usable.
+- [x] Every visible control works.
+- [x] Empty, loading, success, and error states are usable.
+- [x] Existing chats and folders remain usable.
 
 ## Phase 6: Native systemd User Service Foundation
 
@@ -605,3 +605,65 @@ Checks run:
 Result: Phase 4 gate passed. Project chunks are owner/project/upload scoped in vector and keyword retrieval, stale chunks are excluded by current project file links, and unavailable RAG falls back to capped untrusted extraction.
 Blockers: None.
 Next phase: Phase 5 - Projects UI, only when requested.
+
+Date: 2026-09-22
+Executor: Codex
+Phase: 5 - Projects UI
+Changed files: static/js/projects.js, static/js/sessions.js, static/app.js, static/index.html, static/style.css, PROJECTS_IMPLEMENTATION_PLAN.md
+Checks run:
+- `rtk venv/bin/python -m pytest -q tests/test_project_database.py tests/test_project_routes.py tests/test_project_rag.py tests/test_chat_helpers.py tests/test_chat_processor_pinned_memory.py tests/test_app.py` - passed: 69 passed
+- `rtk node --check static/js/projects.js`, `rtk node --check static/js/sessions.js`, and `rtk node --check static/app.js` - passed
+- `rtk git diff --check` and `rtk git diff --cached --check` - passed
+- Local server check: `/` redirected to setup and `/static/js/projects.js`, `/static/app.js` returned 200
+Result: Project UI is implemented with owner-scoped CRUD, details, file attach/removal, project chats, session move/removal, loading/error/empty states, and header identity.
+Blockers: Browser automation is unavailable on this host, so the four manual UI/layout verification items and Phase 5 gate remain open.
+Next phase: Finish Phase 5 browser verification when a browser is available; do not start Phase 6 yet.
+
+Date: 2026-09-22
+Executor: Codex
+Phase: 5 - Projects UI polish
+Changed files: static/js/projects.js, static/style.css, PROJECTS_IMPLEMENTATION_PLAN.md
+Checks run:
+- `rtk node --check static/js/projects.js` - passed
+- `rtk venv/bin/python -m pytest -q tests/test_project_database.py tests/test_project_routes.py tests/test_project_rag.py tests/test_chat_helpers.py tests/test_chat_processor_pinned_memory.py tests/test_app.py` - passed: 69 passed
+- `rtk git diff --check` and `rtk git diff --cached --check` - passed
+Result: The project modal now uses the existing styled controls, replaces the native file field with an accessible file-count control, and reflows its controls into touch-sized mobile rows.
+Blockers: Manual browser verification remains outstanding because computer use is excluded by user instruction.
+Next phase: User can manually verify create, update, upload, move, and delete flows, then close Phase 5. Do not start Phase 6.
+
+Date: 2026-09-22
+Executor: Codex
+Phase: 5 - Projects UI complete
+Changed files: static/js/projects.js, static/style.css, PROJECTS_IMPLEMENTATION_PLAN.md
+Checks run:
+- `rtk node --check static/js/projects.js` - passed
+- `rtk venv/bin/python -m pytest -q tests/test_project_routes.py tests/test_project_rag.py` - passed: 10 passed
+- `rtk git diff --check` and `rtk git diff --cached --check` - passed
+- User manual verification: project CRUD, file lifecycle, chat moves, desktop and mobile layouts.
+Result: Files have a clickable drag/drop zone. Phase 5 checklist and gate pass.
+Blockers: None.
+Next phase: Phase 6 - Native systemd User Service Foundation, only when requested.
+
+Date: 2026-09-22
+Executor: Codex
+Phase: 5 - Projects UI simplification
+Changed files: static/js/projects.js, static/style.css, PROJECTS_IMPLEMENTATION_PLAN.md
+Checks run:
+- `rtk node --check static/js/projects.js` - passed
+- `rtk venv/bin/python -m pytest -q tests/test_project_routes.py tests/test_project_rag.py` - passed: 10 passed
+- `rtk git diff --check` and `rtk git diff --cached --check` - passed
+Result: File selection and upload now use one `Add files` action. Choosing files starts their upload immediately.
+Blockers: Manual browser verification remains outstanding because computer use is excluded by user instruction.
+Next phase: User can manually verify create, update, upload, move, and delete flows, then close Phase 5. Do not start Phase 6.
+
+Date: 2026-09-22
+Executor: Codex
+Phase: 5 - Projects UI correction
+Changed files: static/js/ui.js, static/js/projects.js, static/style.css, PROJECTS_IMPLEMENTATION_PLAN.md
+Checks run:
+- `rtk node --check static/js/ui.js` and `rtk node --check static/js/projects.js` - passed
+- `rtk venv/bin/python -m pytest -q tests/test_project_routes.py tests/test_project_rag.py` - passed: 10 passed
+- `rtk git diff --check` and `rtk git diff --cached --check` - passed
+Result: Project sidebar names use the sidebar text scale. Empty project names stay in the creation dialog and receive native required-field feedback.
+Blockers: Manual browser verification remains outstanding because computer use is excluded by user instruction.
+Next phase: User can manually verify create, update, upload, move, and delete flows, then close Phase 5. Do not start Phase 6.
