@@ -10,13 +10,14 @@ import logging
 from core.session_manager import SessionManager
 from core.models import ChatMessage
 from src.request_models import SessionResponse
-from core.database import Session as DbSession, SessionLocal, Document, GalleryImage, utcnow_naive
+from core.database import Project, Session as DbSession, SessionLocal, Document, GalleryImage, utcnow_naive
 from src.auth_helpers import (
     effective_user,
     _auth_disabled,
     owner_filter,
     is_delegated_credential,
     require_chat_api_token_scope,
+    storage_owner_for_request,
 )
 from src.session_image_cleanup import _generated_image_path_for_cleanup, session_image_refs
 from src.session_actions import is_session_recently_active
@@ -298,7 +299,8 @@ def setup_session_routes(
             last_msg_map = {}
             mode_map = {}
             msg_count_map = {}
-            q = db.query(DbSession.id, DbSession.folder, DbSession.total_input_tokens, DbSession.total_output_tokens, DbSession.is_important, DbSession.created_at, DbSession.updated_at, DbSession.last_message_at, DbSession.mode, DbSession.message_count).filter(DbSession.archived == False)
+            project_map = {}
+            q = db.query(DbSession.id, DbSession.folder, DbSession.total_input_tokens, DbSession.total_output_tokens, DbSession.is_important, DbSession.created_at, DbSession.updated_at, DbSession.last_message_at, DbSession.mode, DbSession.message_count, DbSession.project_id).filter(DbSession.archived == False)
             q = owner_filter(q, DbSession, user)
             rows = q.all()
             for row in rows:
@@ -316,6 +318,7 @@ def setup_session_routes(
                 )
                 mode_map[row.id] = row.mode
                 msg_count_map[row.id] = row.message_count or 0
+                project_map[row.id] = row.project_id
             # Sessions with active documents that have content
             from sqlalchemy import func
             doc_session_ids = set(
@@ -348,6 +351,7 @@ def setup_session_routes(
                      "has_documents": s.id in doc_session_ids,
                      "has_images": s.id in img_session_ids,
                      "mode": mode_map.get(s.id),
+                     "project_id": project_map.get(s.id),
                      "message_count": msg_count_map.get(s.id, 0)}
                     for s in user_sessions.values()
                     if not s.archived
@@ -366,9 +370,29 @@ def setup_session_routes(
         skip_validation: str = Form(None),
         api_key: str = Form(""),
         endpoint_id: str = Form(""),
+        project_id: str = Form(None),
     ):
         skip_val = str(skip_validation).lower() == "true"
         user = effective_user(request)
+        project_id = project_id.strip() if isinstance(project_id, str) else None
+        if project_id:
+            db = SessionLocal()
+            try:
+                project_owner = storage_owner_for_request(request)
+                project = (
+                    owner_filter(
+                        db.query(Project).filter(Project.id == project_id),
+                        Project,
+                        project_owner or "",
+                        include_shared=False,
+                    ).first()
+                    if project_owner
+                    else None
+                )
+                if not project:
+                    raise HTTPException(404, "Project not found")
+            finally:
+                db.close()
         _reject_delegated_session_options(
             request,
             skip_validation=skip_val,
@@ -379,7 +403,6 @@ def setup_session_routes(
         _reject_raw_endpoint_url_for_non_admin(request, user, endpoint_id, endpoint_url)
         if endpoint_id and endpoint_id.strip():
             from core.database import ModelEndpoint
-            from src.auth_helpers import owner_filter
             from src.endpoint_resolver import build_chat_url, normalize_base
             _db = SessionLocal()
             try:
@@ -466,6 +489,7 @@ def setup_session_routes(
             model=model_to_use,
             rag=str(rag).lower() == "true" if rag else False,
             owner=user,
+            project_id=project_id,
         )
         # Set auth headers for custom API-key endpoints
         resolved_key = request_api_key
@@ -490,7 +514,8 @@ def setup_session_routes(
             name=session.name,
             model=model_to_use,
             rag=str(rag).lower() == "true" if rag else False,
-            archived=False
+            archived=False,
+            project_id=project_id,
         )    
     @router.patch("/session/{sid}")
     def rename_session(
@@ -834,6 +859,7 @@ def setup_session_routes(
                     "created_at": s.created_at.isoformat() if s.created_at else None,
                     "updated_at": s.updated_at.isoformat() if s.updated_at else None,
                     "is_important": s.is_important,
+                    "project_id": s.project_id,
                 })
             return {"sessions": sessions, "total": total}
         finally:

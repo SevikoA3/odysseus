@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from urllib.parse import unquote, urlparse
-from sqlalchemy import DDL, event, create_engine, Column, String, Text, Boolean, DateTime, Integer, ForeignKey, JSON, Index, func, inspect, text
+from sqlalchemy import DDL, event, create_engine, Column, String, Text, Boolean, DateTime, Integer, ForeignKey, JSON, Index, UniqueConstraint, CheckConstraint, func, inspect, text
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.types import TypeDecorator
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
@@ -187,6 +187,12 @@ class Session(TimestampMixin, Base):
     endpoint_url = Column(String, nullable=False)
     model = Column(String, nullable=False)
     owner = Column(String, nullable=True, index=True)  # username; null = legacy/shared
+    project_id = Column(
+        String,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     
     # Configuration flags
     rag = Column(Boolean, default=False)
@@ -246,10 +252,49 @@ class Session(TimestampMixin, Base):
             'message_count': self.message_count,
             'is_important': self.is_important,
             'folder': self.folder,
+            'project_id': self.project_id,
             'total_input_tokens': self.total_input_tokens or 0,
             'total_output_tokens': self.total_output_tokens or 0,
             'crew_member_id': self.crew_member_id,
         }
+
+
+class Project(TimestampMixin, Base):
+    __tablename__ = "projects"
+
+    id = Column(String, primary_key=True, index=True)
+    owner = Column(String, nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    instructions = Column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("length(name) <= 100", name="ck_projects_name_length"),
+        CheckConstraint(
+            "instructions IS NULL OR length(instructions) <= 20000",
+            name="ck_projects_instructions_length",
+        ),
+    )
+
+
+class ProjectFile(Base):
+    __tablename__ = "project_files"
+
+    id = Column(String, primary_key=True, index=True)
+    project_id = Column(
+        String,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    upload_id = Column(String, nullable=False)
+    filename = Column(String, nullable=False)
+    mime_type = Column(String, nullable=False)
+    size = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=utcnow_naive, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "upload_id", name="uq_project_files_project_upload"),
+    )
 
 class ChatMessage(Base):
     """
@@ -957,6 +1002,23 @@ def _migrate_add_owner_column():
             conn.close()
         except Exception:
             pass
+
+
+def _migrate_add_session_project_id():
+    """Add the nullable project reference and its lookup index to sessions."""
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("sessions"):
+            return
+        columns = {column["name"] for column in inspector.get_columns("sessions")}
+        with engine.begin() as connection:
+            if "project_id" not in columns:
+                connection.execute(text("ALTER TABLE sessions ADD COLUMN project_id VARCHAR"))
+            connection.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_sessions_project_id ON sessions (project_id)"
+            ))
+    except Exception as e:
+        logger.warning("sessions.project_id migration failed: %s", e)
 
 def _migrate_model_endpoints():
     """Recreate model_endpoints table if schema changed (url->base_url)."""
@@ -2064,6 +2126,7 @@ def init_db():
     Should be called when starting the application.
     """
     _migrate_model_endpoints()
+    _migrate_add_session_project_id()
     Base.metadata.create_all(bind=engine)
     # Lock the DB file (and any SQLite sidecars) to 0o600 — it holds bearer-token
     # + bcrypt hashes and encrypted provider keys. POSIX only; safe_chmod no-ops

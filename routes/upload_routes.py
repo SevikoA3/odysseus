@@ -19,6 +19,7 @@ from core.database import (
     DocumentVersion,
     GalleryImage,
     Note,
+    ProjectFile,
     Session as DbSession,
 )
 from src.auth_helpers import effective_user
@@ -120,6 +121,9 @@ def _collect_persisted_upload_references() -> tuple[set[str], set[str]]:
         ).yield_per(500):
             for value in (image_url, color, content, items):
                 referenced_ids.update(_upload_ids_from_persisted_text(value))
+
+        for (upload_id,) in db.query(ProjectFile.upload_id).yield_per(500):
+            referenced_ids.add(str(upload_id))
 
         for (color,) in db.query(CalendarCal.color).yield_per(500):
             referenced_ids.update(_upload_ids_from_persisted_text(color))
