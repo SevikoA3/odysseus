@@ -3,9 +3,11 @@
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -37,6 +39,8 @@ _CASUAL_BLOCKLIST_RE = re.compile(
     r"file|folder|repo|git|settings?|endpoint|api|token|mcp)\b",
     re.IGNORECASE,
 )
+_MARKDOWN_HEADING_RE = re.compile(r"(?m)^(#{1,6})\s+(.+?)\s*#*\s*$")
+_RETRIEVAL_TOKEN_RE = re.compile(r"[\w'-]+", re.UNICODE)
 
 
 def _is_casual_low_signal(text: str) -> bool:
@@ -58,6 +62,84 @@ def _project_rag_available(chat_processor) -> bool:
     return bool(vector_rag and getattr(vector_rag, "healthy", False))
 
 
+def _contextual_project_chunks(text: str, filename: str) -> list[dict]:
+    from src.personal_docs import split_chunks_with_offsets
+
+    headings = list(_MARKDOWN_HEADING_RE.finditer(text))
+    heading_index = 0
+    section = []
+    chunks = []
+    for start, chunk in split_chunks_with_offsets(text):
+        while heading_index < len(headings) and headings[heading_index].start() <= start:
+            heading = headings[heading_index]
+            level = len(heading.group(1))
+            section = section[:level - 1] + [heading.group(2).strip()]
+            heading_index += 1
+        prefix = f"[Document: {filename}]"
+        if section:
+            prefix += f"\n[Section: {' > '.join(section)}]"
+        chunks.append({"document": f"{prefix}\n{chunk}", "metadata": {"filename": filename}})
+    return chunks
+
+
+def _rank_project_chunks(chunks: list[dict], query: str) -> list[dict]:
+    query_tokens = _RETRIEVAL_TOKEN_RE.findall(query.casefold())
+    if not query_tokens:
+        return chunks
+    token_sets = [set(_RETRIEVAL_TOKEN_RE.findall(chunk["document"].casefold())) for chunk in chunks]
+    frequencies = Counter(
+        token
+        for token in set(query_tokens)
+        for tokens in token_sets
+        if token in tokens
+    )
+    phrases = {
+        " ".join(query_tokens[index:index + 2])
+        for index in range(len(query_tokens) - 1)
+    }
+
+    def score(index: int) -> float:
+        tokens = token_sets[index]
+        text = " ".join(_RETRIEVAL_TOKEN_RE.findall(chunks[index]["document"].casefold()))
+        keyword_score = sum(
+            1 + math.log((len(chunks) + 1) / (frequencies[token] + 1))
+            for token in set(query_tokens) & tokens
+        )
+        phrase_score = 4 * sum(phrase in text for phrase in phrases)
+        return keyword_score + phrase_score
+
+    return [
+        chunk
+        for _, chunk in sorted(
+            enumerate(chunks),
+            key=lambda item: (-score(item[0]), item[0]),
+        )
+    ]
+
+
+def _search_project_rag(
+    chat_processor,
+    message: str,
+    owner: str,
+    project_id: str,
+    upload_ids: set[str],
+) -> list[dict]:
+    rag_manager = getattr(getattr(chat_processor, "personal_docs_manager", None), "rag_manager", None)
+    if not rag_manager:
+        return []
+    try:
+        return rag_manager.search(
+            message,
+            k=5,
+            owner=owner,
+            project_id=project_id,
+            upload_ids=upload_ids,
+        )
+    except Exception:
+        logger.warning("Project RAG retrieval failed", exc_info=True)
+        return []
+
+
 def _project_file_fallbacks(
     project_files,
     upload_handler,
@@ -66,7 +148,7 @@ def _project_file_fallbacks(
 ) -> list[dict]:
     if upload_handler is None:
         return []
-    from src.personal_docs import extract_document_text, split_chunks
+    from src.personal_docs import extract_document_text
 
     chunks = []
     for project_file in project_files:
@@ -77,31 +159,15 @@ def _project_file_fallbacks(
             path = upload.get("path") if isinstance(upload, dict) else None
             if not path:
                 continue
-            for chunk in split_chunks(extract_document_text(path)):
-                chunks.append({
-                    "document": chunk,
-                    "metadata": {
-                        "filename": project_file["filename"],
-                        "upload_id": project_file["upload_id"],
-                    },
-                })
+            text = extract_document_text(path)
+            for chunk in _contextual_project_chunks(text, project_file["filename"]):
+                chunk["metadata"]["upload_id"] = project_file["upload_id"]
+                chunks.append(chunk)
         except Exception:
             logger.warning(
                 "Failed to read project upload %s", project_file["upload_id"], exc_info=True,
             )
-    terms = set(re.findall(r"[\w'-]+", query.casefold()))
-    if not terms:
-        return chunks[:5]
-    return [
-        chunk
-        for _, chunk in sorted(
-            enumerate(chunks),
-            key=lambda item: (
-                -sum(term in item[1]["document"].casefold() for term in terms),
-                item[0],
-            ),
-        )[:5]
-    ]
+    return _rank_project_chunks(chunks, query)[:5]
 
 
 # Strong references to in-flight fire-and-forget tasks scheduled from this
@@ -788,7 +854,26 @@ async def build_chat_context(
         use_rag_val = False
 
     project_file_fallbacks = []
-    if project_context_id and project_files and use_rag_val and not _project_rag_available(chat_processor):
+    project_rag_results = None
+    project_rag_val = bool(
+        project_context_id
+        and project_files
+        and not incognito
+        and allow_tool_preprocessing
+        and not is_research_spinoff
+        and not casual_low_signal
+    )
+    if project_rag_val:
+        upload_ids = {project_file["upload_id"] for project_file in project_files}
+        if _project_rag_available(chat_processor):
+            project_rag_results = await run_in_threadpool(
+                _search_project_rag,
+                chat_processor,
+                context_message,
+                project_owner,
+                project_context_id,
+                upload_ids,
+            )
         project_file_fallbacks = await run_in_threadpool(
             _project_file_fallbacks,
             project_files,
@@ -823,6 +908,7 @@ async def build_chat_context(
         project_id=project_context_id,
         project_owner=project_owner if project_context_id else None,
         project_upload_ids={project_file["upload_id"] for project_file in project_files},
+        project_rag_results=project_rag_results,
         project_file_fallbacks=project_file_fallbacks,
         owner=user,
         character_name=preset.character_name,
@@ -830,8 +916,8 @@ async def build_chat_context(
         incognito=incognito,
         use_skills=skills_enabled,
     )
-    if use_rag is not None or is_research_spinoff or casual_low_signal:
-        _preface_kwargs["use_rag"] = use_rag_val
+    if use_rag is not None or is_research_spinoff or casual_low_signal or project_rag_val:
+        _preface_kwargs["use_rag"] = use_rag_val or project_rag_val
     preface, rag_sources, web_sources = chat_processor.build_context_preface(**_preface_kwargs)
 
     # Capture used memories immediately

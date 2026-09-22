@@ -676,3 +676,61 @@ async def test_build_chat_context_uses_owner_scoped_project_instructions(monkeyp
 
     assert captured == ["Answer in bullet points.", "Answer in bullet points.", None, None]
     assert all(message["content"] != "Answer in bullet points." for message in sess.messages)
+
+
+@pytest.mark.asyncio
+async def test_build_chat_context_combines_project_vector_and_contextual_retrieval(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    database.Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    db = factory()
+    try:
+        db.add(database.Project(id="project-a", owner="alice", name="Project A"))
+        db.add(database.ProjectFile(
+            id="file-a", project_id="project-a", upload_id="upload-a",
+            filename="treatment.md", mime_type="text/markdown", size=1,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    captured = {}
+
+    async def fake_preprocess(chat_handler, message, att_ids, sess, **kwargs):
+        return PreprocessedMessage(message, message, message, [], [])
+
+    def fake_preface(**kwargs):
+        captured.update(kwargs)
+        return [], [], []
+
+    async def fake_compact(sess, endpoint_url, model, messages, headers, owner=None):
+        return messages, 8192, False
+
+    monkeypatch.setattr(chat_helpers, "SessionLocal", factory)
+    monkeypatch.setattr(chat_helpers, "effective_user", lambda request: "alice")
+    monkeypatch.setattr(chat_helpers, "storage_owner_for_request", lambda request: "alice")
+    monkeypatch.setattr(chat_helpers, "preprocess", fake_preprocess)
+    monkeypatch.setattr(chat_helpers, "extract_preset", lambda *_args: PresetInfo(0.7, 1024, None, None))
+    monkeypatch.setattr(chat_helpers, "add_user_message", lambda sess, *_args, **_kwargs: sess.messages.append({"role": "user", "content": "scene 6 shot 11"}))
+    monkeypatch.setattr(chat_helpers, "load_prefs_for_user", lambda user: {})
+    monkeypatch.setattr(chat_helpers, "_normalize_model_id_from_cache", lambda sess: None)
+    monkeypatch.setattr(chat_helpers, "normalize_model_id", lambda *args, **kwargs: None)
+    monkeypatch.setattr(chat_helpers, "maybe_compact", fake_compact)
+    monkeypatch.setattr(chat_helpers, "trim_for_context", lambda messages, context_length: messages)
+    monkeypatch.setattr(chat_helpers, "_project_rag_available", lambda processor: True)
+    monkeypatch.setattr(chat_helpers, "_search_project_rag", lambda *args: [{"similarity": 0.9}])
+    monkeypatch.setattr(chat_helpers, "_project_file_fallbacks", lambda *args: [{
+        "document": "Scene 6 Shot 11 Start Frame.",
+        "metadata": {"filename": "treatment.md", "upload_id": "upload-a"},
+    }])
+
+    sess = SimpleNamespace(project_id="project-a", endpoint_url="http://model.local/v1", model="test", headers={}, messages=[])
+    sess.get_context_messages = lambda: list(sess.messages)
+    await build_chat_context(
+        sess, SimpleNamespace(), SimpleNamespace(), SimpleNamespace(build_context_preface=fake_preface),
+        message="scene 6 shot 11", session_id="session-1", use_rag="false",
+    )
+
+    assert captured["project_rag_results"] == [{"similarity": 0.9}]
+    assert captured["project_file_fallbacks"][0]["metadata"]["filename"] == "treatment.md"
+    assert captured["use_rag"] is True

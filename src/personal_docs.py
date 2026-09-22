@@ -78,10 +78,15 @@ def read_text_file(path: str) -> str:
     except Exception:
         return ""
 
-def split_chunks(text: str, size: int = config.CHUNK_SIZE, overlap: int = config.CHUNK_OVERLAP) -> List[str]:
-    """Split text into overlapping chunks."""
+def split_chunks_with_offsets(
+    text: str,
+    size: int = config.CHUNK_SIZE,
+    overlap: int = config.CHUNK_OVERLAP,
+) -> List[Tuple[int, str]]:
+    """Split text into overlapping chunks while retaining source offsets."""
     if not isinstance(text, str):
         return []
+    leading_offset = len(text) - len(text.lstrip())
     text = text.strip()
     if not text:
         return []
@@ -90,7 +95,7 @@ def split_chunks(text: str, size: int = config.CHUNK_SIZE, overlap: int = config
     n = len(text)
     while i < n:
         j = min(i + size, n)
-        chunks.append(text[i:j])
+        chunks.append((leading_offset + i, text[i:j]))
         if j >= n:
             # Reached the end. Without this, the next start (j - overlap) is
             # still > i, so the loop appended one extra chunk duplicating the
@@ -98,6 +103,11 @@ def split_chunks(text: str, size: int = config.CHUNK_SIZE, overlap: int = config
             break
         i = j - overlap if j - overlap > i else j
     return chunks
+
+
+def split_chunks(text: str, size: int = config.CHUNK_SIZE, overlap: int = config.CHUNK_OVERLAP) -> List[str]:
+    """Split text into overlapping chunks."""
+    return [chunk for _, chunk in split_chunks_with_offsets(text, size, overlap)]
 
 def tokenize(s: str) -> Set[str]:
     """Tokenize string into words, excluding stop words."""

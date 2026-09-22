@@ -5,7 +5,7 @@ so any text longer than (size - overlap) got an extra final chunk duplicating
 the last `overlap` characters. That duplicate is indexed and keyword-scored
 twice, so retrieve_personal_keyword returns the same tail content twice.
 """
-from src.personal_docs import split_chunks
+from src.personal_docs import split_chunks, split_chunks_with_offsets
 
 
 def test_no_duplicate_tail_chunk():
@@ -34,3 +34,9 @@ def test_overlap_is_preserved_between_chunks():
 
 def test_short_text_single_chunk():
     assert split_chunks("hello world", size=1000, overlap=200) == ["hello world"]
+
+
+def test_split_chunks_with_offsets_keeps_original_positions():
+    assert split_chunks_with_offsets("\n# Heading\ntext", size=1000, overlap=200) == [
+        (1, "# Heading\ntext"),
+    ]

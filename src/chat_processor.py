@@ -12,6 +12,12 @@ from src.prompt_security import UNTRUSTED_CONTEXT_POLICY, untrusted_context_mess
 
 logger = logging.getLogger(__name__)
 
+PROJECT_FILE_CONTEXT_POLICY = (
+    "For project-specific facts, use supplied project-file context before asking "
+    "the user for details. If it does not answer, state the missing detail; do not "
+    "claim the project has no files."
+)
+
 
 def _clean_search_query(query: str, max_len: int = 200) -> str:
     """Strip fenced code blocks from a search query while preserving inline
@@ -273,6 +279,7 @@ class ChatProcessor:
         project_id: Optional[str] = None,
         project_owner: Optional[str] = None,
         project_upload_ids: Optional[set[str]] = None,
+        project_rag_results: Optional[List[Dict[str, Any]]] = None,
         project_file_fallbacks: Optional[List[Dict[str, Any]]] = None,
         owner: Optional[str] = None,
         character_name: Optional[str] = None,
@@ -311,6 +318,11 @@ class ChatProcessor:
             preface.append({
                 "role": "system",
                 "content": project_instructions,
+            })
+        if project_id:
+            preface.append({
+                "role": "system",
+                "content": PROJECT_FILE_CONTEXT_POLICY,
             })
         preface.append({
             "role": "system",
@@ -374,13 +386,15 @@ class ChatProcessor:
                 rag_manager = getattr(self.personal_docs_manager, 'rag_manager', None)
                 if rag_manager:
                     if project_id:
-                        results = rag_manager.search(
-                            message,
-                            k=5,
-                            owner=project_owner,
-                            project_id=project_id,
-                            upload_ids=project_upload_ids,
-                        ) if project_owner else []
+                        results = project_rag_results if project_rag_results is not None else (
+                            rag_manager.search(
+                                message,
+                                k=5,
+                                owner=project_owner,
+                                project_id=project_id,
+                                upload_ids=project_upload_ids,
+                            ) if project_owner else []
+                        )
                     else:
                         results = rag_manager.search(message, k=5, owner=owner)
                     # Filter by similarity threshold

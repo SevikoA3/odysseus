@@ -719,6 +719,18 @@ Next phase: User can manually verify create, update, upload, move, and delete fl
 
 Date: 2026-09-22
 Executor: Codex
+Phase: 5 - Project file retrieval correction
+Changed files: src/personal_docs.py, routes/chat_helpers.py, src/chat_processor.py, tests/test_chat_helpers.py, tests/test_project_rag.py, tests/test_split_chunks_no_duplicate_tail.py
+Checks run:
+- `rtk venv/bin/python -m py_compile src/personal_docs.py routes/chat_helpers.py src/chat_processor.py tests/test_project_rag.py tests/test_chat_helpers.py tests/test_split_chunks_no_duplicate_tail.py` - passed
+- `rtk venv/bin/python -m pytest -q tests/test_project_routes.py tests/test_project_rag.py tests/test_chat_helpers.py tests/test_split_chunks_no_duplicate_tail.py tests/test_personal_docs_keyword_nondict.py` - passed: 60 passed
+- `rtk git diff --check` and `rtk git diff --cached --check` - passed
+Result: Project files are loaded for substantive project chats even when generic RAG is disabled. Semantic RAG is combined with heading-aware lexical retrieval, which preserves Markdown section context and ranks exact query phrases above generic document language.
+Blockers: None.
+Next phase: Phase 6 logout verification remains outstanding; start Phase 7 only when requested.
+
+Date: 2026-09-22
+Executor: Codex
 Phase: 5 - Projects UI correction
 Changed files: static/js/ui.js, static/js/projects.js, static/style.css, PROJECTS_IMPLEMENTATION_PLAN.md
 Checks run:

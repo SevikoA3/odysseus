@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from routes.chat_helpers import _project_file_fallbacks
-from src.chat_processor import ChatProcessor
+from src.chat_processor import ChatProcessor, PROJECT_FILE_CONTEXT_POLICY
 from src.rag_vector import VectorRAG
 from tests.helpers.embedding_lanes import FakeChroma, FakeEmbedder, patch_chroma
 
@@ -126,6 +126,7 @@ def test_project_context_keeps_retrieved_files_untrusted():
         "project_id": "project-a",
         "upload_id": "upload-a",
     }]
+    assert {"role": "system", "content": PROJECT_FILE_CONTEXT_POLICY} in preface
     file_message = next(message for message in preface if message.get("metadata", {}).get("source") == "retrieved documents")
     assert file_message["role"] == "user"
     assert file_message["metadata"]["trusted"] is False
@@ -147,6 +148,33 @@ def test_project_context_keeps_retrieved_files_untrusted():
     assert fallback_sources[0]["filename"] == "fallback.txt"
     assert fallback_message["role"] == "user"
     assert fallback_message["metadata"]["trusted"] is False
+
+
+def test_project_context_uses_fallback_after_rag_miss_without_requerying():
+    class Rag:
+        def search(self, *args, **kwargs):
+            raise AssertionError("precomputed project RAG result should be reused")
+
+    preface, sources, _web_sources = ChatProcessor(
+        memory_manager=SimpleNamespace(),
+        personal_docs_manager=SimpleNamespace(rag_manager=Rag()),
+    ).build_context_preface(
+        message="scene 6 shot 11",
+        session=SimpleNamespace(),
+        use_memory=False,
+        project_id="project-a",
+        project_owner="alice",
+        project_upload_ids={"upload-a"},
+        project_rag_results=[],
+        project_file_fallbacks=[{
+            "document": "Scene 6 Shot 11 Start Frame: sunrise over forest.",
+            "metadata": {"filename": "treatment.md", "upload_id": "upload-a"},
+        }],
+    )
+
+    assert {"role": "system", "content": PROJECT_FILE_CONTEXT_POLICY} in preface
+    assert sources[0]["filename"] == "treatment.md"
+    assert any(message.get("metadata", {}).get("source") == "project files" for message in preface)
 
 
 def test_project_file_fallback_is_capped_and_skips_corrupt_uploads(tmp_path):
@@ -176,9 +204,17 @@ def test_project_file_fallback_prefers_matching_storyboard_chunk(tmp_path):
     master = tmp_path / "master.md"
     scenario = tmp_path / "scenario.md"
     treatment = tmp_path / "treatment.md"
-    master.write_text("General production guide. " * 800, encoding="utf-8")
+    master.write_text(
+        "Prompt scene guidance for episode 6. Every shot needs a start frame. " * 800,
+        encoding="utf-8",
+    )
     scenario.write_text("Character dialogue. " * 800, encoding="utf-8")
-    treatment.write_text("Scene 6 Shot 11 Start Frame: sunrise over the forest. " * 800, encoding="utf-8")
+    treatment.write_text(
+        "## 4. Scene 6 :\n"
+        + ("Previous shot description. " * 80)
+        + "\n- **Shot 11 :** CU. Raya says she studied toxicology. Camera statis.\n",
+        encoding="utf-8",
+    )
 
     class Uploads:
         def resolve_upload(self, upload_id, **_kwargs):
@@ -196,3 +232,5 @@ def test_project_file_fallback_prefers_matching_storyboard_chunk(tmp_path):
     )
 
     assert chunks[0]["metadata"]["filename"] == "treatment.md"
+    assert "[Section: 4. Scene 6 :]" in chunks[0]["document"]
+    assert "Shot 11" in chunks[0]["document"]
