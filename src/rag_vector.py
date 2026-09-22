@@ -45,14 +45,56 @@ KEYWORD_WEIGHT = 0.3
 COLLECTION_NAME = "odysseus_rag"
 
 
-def _generate_doc_id(text: str, owner: str = "") -> str:
+def _generate_doc_id(
+    text: str,
+    owner: str = "",
+    project_id: str = "",
+    upload_id: str = "",
+) -> str:
     # Owner-scope the id so two owners can index byte-identical chunks
     # without the second one's add early-returning on the first's id and
     # being silently dropped from their owner-filtered search results.
     # Empty owner reproduces the legacy text-only id so the unowned/base
     # index keeps its existing ids and isn't re-churned.
-    key = f"{owner}\x00{text}" if owner else text
+    if project_id or upload_id:
+        key = f"{owner}\x00{project_id}\x00{upload_id}\x00{text}"
+    else:
+        key = f"{owner}\x00{text}" if owner else text
     return f"doc_{hashlib.sha256(key.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _matches_scope(
+    metadata: Any,
+    project_id: Optional[str],
+    upload_ids: Optional[set[str]] = None,
+) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    if project_id:
+        if metadata.get("scope") != "project" or metadata.get("project_id") != project_id:
+            return False
+        return upload_ids is None or metadata.get("upload_id") in upload_ids
+    return metadata.get("scope") != "project"
+
+
+def _scope_where(
+    owner: Optional[str],
+    project_id: Optional[str],
+    upload_ids: Optional[set[str]],
+) -> Optional[Dict[str, Any]]:
+    clauses = []
+    if owner:
+        clauses.append({"owner": owner})
+    if project_id:
+        clauses.extend((
+            {"scope": "project"},
+            {"project_id": project_id},
+        ))
+        if upload_ids is not None:
+            clauses.append({"upload_id": {"$in": sorted(upload_ids)}})
+    if not clauses:
+        return None
+    return clauses[0] if len(clauses) == 1 else {"$and": clauses}
 
 
 def _rewrite_owner_path(value: str, path_map: Dict[str, str], path_prefixes: List[tuple]) -> str:
@@ -188,7 +230,12 @@ class VectorRAG:
         if not metadata or not isinstance(metadata, dict):
             return False
 
-        doc_id = _generate_doc_id(text, metadata.get("owner") or "")
+        doc_id = _generate_doc_id(
+            text,
+            metadata.get("owner") or "",
+            metadata.get("project_id") or "",
+            metadata.get("upload_id") or "",
+        )
         wrote = False
         for lane in self._lanes:
             try:
@@ -224,7 +271,15 @@ class VectorRAG:
         attempted_new = False
         write_failed = False
         for lane in self._lanes:
-            all_ids = [_generate_doc_id(t, m.get("owner") or "") for t, m in valid]
+            all_ids = [
+                _generate_doc_id(
+                    text,
+                    metadata.get("owner") or "",
+                    metadata.get("project_id") or "",
+                    metadata.get("upload_id") or "",
+                )
+                for text, metadata in valid
+            ]
             try:
                 existing = lane.collection.get(ids=all_ids)
                 existing_ids = set(existing.get("ids") or [])
@@ -345,16 +400,27 @@ class VectorRAG:
     # Search — hybrid: vector similarity + keyword overlap
     # ------------------------------------------------------------------
 
-    def search(self, query: str, k: int = 5, owner: Optional[str] = None) -> List[Dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        k: int = 5,
+        owner: Optional[str] = None,
+        project_id: Optional[str] = None,
+        upload_ids: Optional[set[str]] = None,
+    ) -> List[Dict[str, Any]]:
         if not self.healthy:
             return []
         if not query or not isinstance(query, str):
+            return []
+        if project_id and not owner:
+            return []
+        if project_id and upload_ids is not None and not upload_ids:
             return []
         if lane_count(self._lanes) == 0:
             return []
 
         try:
-            where_filter = {"owner": owner} if owner else None
+            where_filter = _scope_where(owner, project_id, upload_ids)
             query_words = set(query.lower().split())
             candidates = []
 
@@ -375,6 +441,8 @@ class VectorRAG:
                     distance = results["distances"][0][idx]
                     doc_text = results["documents"][0][idx]
                     meta = results["metadatas"][0][idx]
+                    if not _matches_scope(meta, project_id, upload_ids):
+                        continue
 
                     vector_sim = 1.0 - distance
                     doc_words = set(doc_text.lower().split())
@@ -400,9 +468,22 @@ class VectorRAG:
 
         except Exception as e:
             logger.error(f"search failed: {e}")
-            return self._keyword_search_fallback(query, k, owner=owner)
+            return self._keyword_search_fallback(
+                query,
+                k,
+                owner=owner,
+                project_id=project_id,
+                upload_ids=upload_ids,
+            )
 
-    def _keyword_search_fallback(self, query: str, k: int = 5, owner: Optional[str] = None) -> List[Dict[str, Any]]:
+    def _keyword_search_fallback(
+        self,
+        query: str,
+        k: int = 5,
+        owner: Optional[str] = None,
+        project_id: Optional[str] = None,
+        upload_ids: Optional[set[str]] = None,
+    ) -> List[Dict[str, Any]]:
         try:
             if not self._active_collections():
                 return []
@@ -418,6 +499,8 @@ class VectorRAG:
                 for i, doc in enumerate(all_docs["documents"]):
                     meta = all_docs["metadatas"][i]
                     if owner and meta.get("owner") != owner:
+                        continue
+                    if not _matches_scope(meta, project_id, upload_ids):
                         continue
                     doc_lower = doc.lower()
                     score = sum(1 for w in query_words if w in doc_lower)
@@ -554,6 +637,46 @@ class VectorRAG:
         except Exception as e:
             logger.error(f"index_personal_documents {directory}: {e}")
             return {'success': False, 'indexed_count': indexed, 'failed_count': failed, 'message': str(e)}
+
+    def index_project_file(
+        self,
+        path: str,
+        *,
+        owner: str,
+        project_id: str,
+        upload_id: str,
+        filename: str,
+    ) -> Dict[str, Any]:
+        if not self.healthy:
+            return {"success": False, "indexed_count": 0, "message": "Collection not initialized"}
+        try:
+            from src.personal_docs import extract_document_text
+
+            chunks = self._split_into_chunks(extract_document_text(path))
+            result = self.add_documents_batch([
+                (
+                    chunk,
+                    {
+                        "source": path,
+                        "filename": filename,
+                        "type": Path(filename).suffix.lower(),
+                        "owner": owner,
+                        "scope": "project",
+                        "project_id": project_id,
+                        "upload_id": upload_id,
+                        "chunk_id": index,
+                    },
+                )
+                for index, chunk in enumerate(chunks)
+            ]) if chunks else {"success": True, "added_count": 0, "message": "No readable content"}
+            return {
+                "success": bool(result.get("success")),
+                "indexed_count": result.get("added_count", 0),
+                "message": result.get("message", ""),
+            }
+        except Exception as e:
+            logger.warning("Project file indexing failed for %s: %s", path, e)
+            return {"success": False, "indexed_count": 0, "message": str(e)}
 
     def remove_directory(self, directory: str) -> Dict[str, Any]:
         """Remove all chunks under ``directory`` (recursively), and nothing else.
@@ -696,6 +819,35 @@ class VectorRAG:
         except Exception as e:
             logger.error(f"delete_by_source failed: {e}")
             return 0
+
+    def delete_project_chunks(
+        self,
+        owner: str,
+        project_id: str,
+        upload_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if not self.healthy:
+            return {"success": False, "removed_count": 0, "message": "Collection not initialized"}
+        try:
+            removed_ids = set()
+            for _lane_name, collection in self._collections_for_delete():
+                results = collection.get(include=["metadatas"])
+                ids = [
+                    row_id
+                    for row_id, metadata in zip(results.get("ids") or [], results.get("metadatas") or [])
+                    if isinstance(metadata, dict)
+                    and metadata.get("owner") == owner
+                    and metadata.get("scope") == "project"
+                    and metadata.get("project_id") == project_id
+                    and (upload_id is None or metadata.get("upload_id") == upload_id)
+                ]
+                if ids:
+                    collection.delete(ids=ids)
+                    removed_ids.update(ids)
+            return {"success": True, "removed_count": len(removed_ids)}
+        except Exception as e:
+            logger.error("delete_project_chunks failed: %s", e)
+            return {"success": False, "removed_count": 0, "message": str(e)}
 
     # ------------------------------------------------------------------
     # Convenience

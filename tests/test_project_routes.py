@@ -46,7 +46,7 @@ def _endpoints(router):
     }
 
 
-def _project_routes(monkeypatch):
+def _project_routes(monkeypatch, rag_manager=None):
     engine = create_engine("sqlite:///:memory:")
     database.Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
@@ -57,7 +57,9 @@ def _project_routes(monkeypatch):
     monkeypatch.setattr(project_routes, "SessionLocal", factory)
     monkeypatch.setattr(project_routes, "effective_user", lambda request: user["name"])
     monkeypatch.setattr(project_routes, "storage_owner_for_request", lambda request: user["name"])
-    return _endpoints(project_routes.setup_project_routes(manager, uploads)), user, factory, manager, uploads
+    return _endpoints(
+        project_routes.setup_project_routes(manager, uploads, rag_manager)
+    ), user, factory, manager, uploads
 
 
 def _create_project(endpoints):
@@ -230,6 +232,46 @@ def test_project_file_references_survive_upload_cleanup(monkeypatch):
     referenced_ids, _referenced_hashes = upload_routes._collect_persisted_upload_references()
 
     assert upload_id in referenced_ids
+
+
+def test_project_file_lifecycle_calls_scoped_rag_methods(monkeypatch):
+    class Rag:
+        def __init__(self):
+            self.indexed = []
+            self.deleted = []
+
+        def index_project_file(self, path, **kwargs):
+            self.indexed.append((path, kwargs))
+            return {"success": True}
+
+        def delete_project_chunks(self, owner, project_id, upload_id=None):
+            self.deleted.append((owner, project_id, upload_id))
+            return {"success": True}
+
+    rag = Rag()
+    endpoints, _user, _factory, _manager, uploads = _project_routes(monkeypatch, rag)
+    uploads.rows["a" * 32 + ".txt"]["path"] = "/uploads/alice.txt"
+    project = _create_project(endpoints)
+    upload_id = "a" * 32 + ".txt"
+
+    endpoints[("POST", "/api/projects/{project_id}/files")](
+        SimpleNamespace(), project["id"], project_routes.ProjectFileAttach(upload_id=upload_id)
+    )
+    endpoints[("DELETE", "/api/projects/{project_id}/files/{upload_id}")](
+        SimpleNamespace(), project["id"], upload_id
+    )
+    endpoints[("DELETE", "/api/projects/{project_id}")](SimpleNamespace(), project["id"])
+
+    assert rag.indexed == [("/uploads/alice.txt", {
+        "owner": "alice",
+        "project_id": project["id"],
+        "upload_id": upload_id,
+        "filename": "alice.txt",
+    })]
+    assert rag.deleted == [
+        ("alice", project["id"], upload_id),
+        ("alice", project["id"], None),
+    ]
 
 
 def test_session_api_validates_and_returns_project_membership(monkeypatch):

@@ -32,9 +32,24 @@ class RAGManager:
         logger.info("RAGManager initialized as wrapper for VectorRAG")
     
     # Delegate all methods to VectorRAG
-    def search(self, query: str, k: int = 5, owner: Optional[str] = None) -> List[Dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        k: int = 5,
+        owner: Optional[str] = None,
+        project_id: Optional[str] = None,
+        upload_ids: Optional[set[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """Search for documents - delegates to VectorRAG."""
-        return self.vector_rag.search(query, k, owner=owner)
+        if project_id is None and upload_ids is None:
+            return self.vector_rag.search(query, k, owner=owner)
+        return self.vector_rag.search(
+            query,
+            k,
+            owner=owner,
+            project_id=project_id,
+            upload_ids=upload_ids,
+        )
     
     def index_personal_documents(
         self,
@@ -68,3 +83,9 @@ class RAGManager:
     def add_documents_batch(self, docs: List[tuple]) -> Dict[str, Any]:
         """Add documents in batch - delegates to VectorRAG."""
         return self.vector_rag.add_documents_batch(docs)
+
+    def index_project_file(self, path: str, **kwargs) -> Dict[str, Any]:
+        return self.vector_rag.index_project_file(path, **kwargs)
+
+    def delete_project_chunks(self, owner: str, project_id: str, upload_id: Optional[str] = None) -> Dict[str, Any]:
+        return self.vector_rag.delete_project_chunks(owner, project_id, upload_id)

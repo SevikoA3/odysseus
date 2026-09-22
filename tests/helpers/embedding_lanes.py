@@ -48,7 +48,7 @@ class FakeCollection:
             selected = [
                 (row_id, row)
                 for row_id, row in selected
-                if all(row["metadata"].get(k) == v for k, v in where.items())
+                if _matches_where(row["metadata"], where)
             ]
         if limit is not None:
             selected = selected[:limit]
@@ -84,6 +84,18 @@ class FakeCollection:
             self.dim = dim
         elif self.dim != dim:
             raise RuntimeError(f"Collection expecting embedding with dimension of {self.dim}, got {dim}")
+
+
+def _matches_where(metadata, where):
+    if "$and" in where:
+        return all(_matches_where(metadata, clause) for clause in where["$and"])
+    for key, value in where.items():
+        if isinstance(value, dict) and "$in" in value:
+            if metadata.get(key) not in value["$in"]:
+                return False
+        elif metadata.get(key) != value:
+            return False
+    return True
 
 
 class FakeChroma:

@@ -10,18 +10,19 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from core.models import ChatMessage
-from core.database import SessionLocal
+from core.database import Project, ProjectFile, SessionLocal
 from core.database import Session as DBSession, ModelEndpoint
 from src.llm_core import normalize_model_id
 from src.endpoint_resolver import normalize_base
 from src.context_compactor import maybe_compact, trim_for_context
 from src.model_context import estimate_tokens, get_context_length
-from src.auth_helpers import effective_user
+from src.auth_helpers import effective_user, owner_filter, storage_owner_for_request
 from src.prompt_security import untrusted_context_message
 from src.attachment_refs import attachment_ref
 from routes.prefs_routes import _load_for_user as load_prefs_for_user
 
 from fastapi import HTTPException
+from fastapi.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,43 @@ def _is_casual_low_signal(text: str) -> bool:
         return False
     tail_words = re.findall(r"[A-Za-z0-9_'-]+", tail)
     return len(tail_words) <= 2
+
+
+def _project_rag_available(chat_processor) -> bool:
+    rag_manager = getattr(getattr(chat_processor, "personal_docs_manager", None), "rag_manager", None)
+    vector_rag = getattr(rag_manager, "vector_rag", rag_manager)
+    return bool(vector_rag and getattr(vector_rag, "healthy", False))
+
+
+def _project_file_fallbacks(project_files, upload_handler, owner: Optional[str]) -> list[dict]:
+    if upload_handler is None:
+        return []
+    from src.personal_docs import extract_document_text, split_chunks
+
+    chunks = []
+    for project_file in project_files:
+        try:
+            upload = upload_handler.resolve_upload(
+                project_file["upload_id"], owner=owner, allow_admin=False,
+            )
+            path = upload.get("path") if isinstance(upload, dict) else None
+            if not path:
+                continue
+            for chunk in split_chunks(extract_document_text(path)):
+                chunks.append({
+                    "document": chunk,
+                    "metadata": {
+                        "filename": project_file["filename"],
+                        "upload_id": project_file["upload_id"],
+                    },
+                })
+                if len(chunks) == 5:
+                    return chunks
+        except Exception:
+            logger.warning(
+                "Failed to read project upload %s", project_file["upload_id"], exc_info=True,
+            )
+    return chunks
 
 
 # Strong references to in-flight fire-and-forget tasks scheduled from this
@@ -662,6 +700,36 @@ async def build_chat_context(
     # Resolve owner-scoped prefs/context. Browser requests keep the cookie user;
     # bearer-token chat requests use the token owner instead of the "api" sentinel.
     user = effective_user(request)
+    project_instructions = None
+    project_context_id = None
+    project_files = []
+    project_id = getattr(sess, "project_id", None)
+    project_owner = user or storage_owner_for_request(request)
+    if project_id and project_owner:
+        db = SessionLocal()
+        try:
+            project = owner_filter(
+                db.query(Project).filter(Project.id == project_id),
+                Project,
+                project_owner,
+                include_shared=False,
+            ).first()
+            if project:
+                project_context_id = project.id
+                project_instructions = project.instructions
+                project_files = [
+                    {
+                        "upload_id": project_file.upload_id,
+                        "filename": project_file.filename,
+                    }
+                    for project_file in db.query(ProjectFile).filter(
+                        ProjectFile.project_id == project.id,
+                    ).order_by(ProjectFile.created_at.asc()).all()
+                ]
+        except Exception:
+            logger.warning("Failed to load project context for session %s", session_id, exc_info=True)
+        finally:
+            db.close()
     uprefs = load_prefs_for_user(user)
     uploaded_files = build_uploaded_file_manifest(
         att_ids or [],
@@ -704,6 +772,15 @@ async def build_chat_context(
     if incognito or not allow_tool_preprocessing or is_research_spinoff or casual_low_signal:
         use_rag_val = False
 
+    project_file_fallbacks = []
+    if project_context_id and project_files and use_rag_val and not _project_rag_available(chat_processor):
+        project_file_fallbacks = await run_in_threadpool(
+            _project_file_fallbacks,
+            project_files,
+            getattr(chat_handler, "upload_handler", None),
+            user,
+        )
+
     # If pre-fetched search context was provided (compare mode), skip live web search
     skip_web = bool(search_context) or not allow_tool_preprocessing or casual_low_signal
 
@@ -726,6 +803,11 @@ async def build_chat_context(
         use_memory=mem_enabled,
         time_filter=time_filter,
         preset_system_prompt=preset.system_prompt,
+        project_instructions=project_instructions,
+        project_id=project_context_id,
+        project_owner=project_owner if project_context_id else None,
+        project_upload_ids={project_file["upload_id"] for project_file in project_files},
+        project_file_fallbacks=project_file_fallbacks,
         owner=user,
         character_name=preset.character_name,
         agent_mode=agent_mode,

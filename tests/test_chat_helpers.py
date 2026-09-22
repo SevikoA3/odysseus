@@ -7,7 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+from core import database
 import routes.chat_helpers as chat_helpers
 from routes.chat_helpers import (
     _enforce_chat_privileges,
@@ -580,3 +583,96 @@ async def test_build_chat_context_keeps_cookie_user_owner_scope(monkeypatch):
         "preface_owner": "bob",
         "compact_owner": "bob",
     }
+
+
+@pytest.mark.asyncio
+async def test_build_chat_context_uses_owner_scoped_project_instructions(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    database.Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    db = factory()
+    try:
+        db.add(database.Project(
+            id="alice-project",
+            owner="alice",
+            name="Alice project",
+            instructions="Answer in bullet points.",
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    owner = {"name": "alice"}
+    captured = []
+
+    async def fake_preprocess(chat_handler, message, att_ids, sess, **kwargs):
+        return PreprocessedMessage(
+            enhanced_message=message,
+            user_content=message,
+            text_for_context=message,
+            youtube_transcripts=[],
+            attachment_meta=[],
+        )
+
+    def fake_preface(**kwargs):
+        captured.append(kwargs.get("project_instructions"))
+        return [], [], []
+
+    async def fake_compact(sess, endpoint_url, model, messages, headers, owner=None):
+        return messages, 8192, False
+
+    monkeypatch.setattr(chat_helpers, "SessionLocal", factory)
+    monkeypatch.setattr(chat_helpers, "effective_user", lambda request: owner["name"])
+    monkeypatch.setattr(chat_helpers, "storage_owner_for_request", lambda request: owner["name"])
+    monkeypatch.setattr(chat_helpers, "preprocess", fake_preprocess)
+    monkeypatch.setattr(
+        chat_helpers,
+        "extract_preset",
+        lambda *_args: PresetInfo(0.7, 1024, "Preset instructions.", None),
+    )
+    monkeypatch.setattr(
+        chat_helpers,
+        "add_user_message",
+        lambda sess, _handler, preprocessed, incognito=False: sess.messages.append(
+            {"role": "user", "content": preprocessed.user_content}
+        ),
+    )
+    monkeypatch.setattr(chat_helpers, "load_prefs_for_user", lambda user: {})
+    monkeypatch.setattr(chat_helpers, "_normalize_model_id_from_cache", lambda sess: None)
+    monkeypatch.setattr(chat_helpers, "normalize_model_id", lambda *args, **kwargs: None)
+    monkeypatch.setattr(chat_helpers, "maybe_compact", fake_compact)
+    monkeypatch.setattr(chat_helpers, "trim_for_context", lambda messages, context_length: messages)
+
+    sess = SimpleNamespace(
+        project_id="alice-project",
+        endpoint_url="http://model.local/v1",
+        model="test-model",
+        headers={},
+        messages=[],
+    )
+    sess.get_context_messages = lambda: list(sess.messages)
+    processor = SimpleNamespace(build_context_preface=fake_preface)
+
+    await build_chat_context(
+        sess, SimpleNamespace(), SimpleNamespace(), processor,
+        message="sync", session_id="session-1", use_rag=False,
+    )
+    await build_chat_context(
+        sess, SimpleNamespace(), SimpleNamespace(), processor,
+        message="stream", session_id="session-1", use_rag=False,
+        use_enhanced_message=True, agent_mode=True,
+    )
+
+    owner["name"] = "bob"
+    await build_chat_context(
+        sess, SimpleNamespace(), SimpleNamespace(), processor,
+        message="other owner", session_id="session-1", use_rag=False,
+    )
+    sess.project_id = None
+    await build_chat_context(
+        sess, SimpleNamespace(), SimpleNamespace(), processor,
+        message="outside project", session_id="session-1", use_rag=False,
+    )
+
+    assert captured == ["Answer in bullet points.", "Answer in bullet points.", None, None]
+    assert all(message["content"] != "Answer in bullet points." for message in sess.messages)

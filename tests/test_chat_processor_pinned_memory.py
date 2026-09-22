@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from src.chat_processor import ChatProcessor
+from src.prompt_security import UNTRUSTED_CONTEXT_POLICY
 
 
 class _Memory:
@@ -150,3 +151,30 @@ def test_total_memory_injection_is_capped_at_five_across_pinned_and_recalled():
 
     assert len(processor._last_used_memories) <= 5
     assert sum(1 for m in processor._last_used_memories if m["type"] == "pinned") == 4
+
+
+def test_project_instructions_follow_preset_and_keep_policy():
+    processor = _processor([])
+    preface, _, _ = processor.build_context_preface(
+        message="hello",
+        session=SimpleNamespace(),
+        use_rag=False,
+        use_memory=False,
+        preset_system_prompt="Preset instructions.",
+        project_instructions="Project instructions.",
+    )
+
+    assert preface[:3] == [
+        {"role": "system", "content": "Preset instructions."},
+        {"role": "system", "content": "Project instructions."},
+        {"role": "system", "content": UNTRUSTED_CONTEXT_POLICY},
+    ]
+
+    empty_preface, _, _ = processor.build_context_preface(
+        message="hello",
+        session=SimpleNamespace(),
+        use_rag=False,
+        use_memory=False,
+        project_instructions=" ",
+    )
+    assert empty_preface == [{"role": "system", "content": UNTRUSTED_CONTEXT_POLICY}]

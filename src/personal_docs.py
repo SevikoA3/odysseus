@@ -38,6 +38,16 @@ def extract_office_text(file_path: str) -> str:
     return convert_to_markdown(file_path) or ""
 
 
+def extract_document_text(file_path: str) -> str:
+    """Extract text from a supported document for indexing."""
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == ".pdf":
+        return extract_pdf_text(file_path)
+    if ext in MARKITDOWN_EXTS:
+        return extract_office_text(file_path)
+    return read_text_file(file_path)
+
+
 @dataclass
 class PersonalDocsConfig:
     """Configuration for personal documents management."""

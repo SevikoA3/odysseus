@@ -183,92 +183,92 @@ Target branch for VM updates: `main`
 
 ### Context loading
 
-- [ ] Load the project using both `session.project_id` and effective owner.
-- [ ] Treat missing, deleted, or inaccessible projects as a closed failure, not shared context.
-- [ ] Pass project instructions through the shared chat context path.
-- [ ] Cover both synchronous and streaming chat through the shared helper.
-- [ ] Cover agent mode through the same context construction path.
+- [x] Load the project using both `session.project_id` and effective owner.
+- [x] Treat missing, deleted, or inaccessible projects as a closed failure, not shared context.
+- [x] Pass project instructions through the shared chat context path.
+- [x] Cover both synchronous and streaming chat through the shared helper.
+- [x] Cover agent mode through the same context construction path.
 
 ### Prompt ordering
 
-- [ ] Keep the selected preset system prompt first.
-- [ ] Add project instructions after the preset.
-- [ ] Keep `UNTRUSTED_CONTEXT_POLICY` active.
-- [ ] Keep project instructions stable across turns for prompt-cache reuse.
-- [ ] Do not copy project instructions into persisted user messages.
-- [ ] Do not place project file contents in a system message.
+- [x] Keep the selected preset system prompt first.
+- [x] Add project instructions after the preset.
+- [x] Keep `UNTRUSTED_CONTEXT_POLICY` active.
+- [x] Keep project instructions stable across turns for prompt-cache reuse.
+- [x] Do not copy project instructions into persisted user messages.
+- [x] Do not place project file contents in a system message.
 
 ### Verification
 
-- [ ] Test instructions appear in every chat inside the project.
-- [ ] Test instructions do not appear outside the project.
-- [ ] Test one user's project instructions cannot enter another user's chat.
-- [ ] Test presets still work with project instructions.
-- [ ] Test empty instructions add no empty system message.
-- [ ] Test streaming and non-streaming context use the same project instructions.
+- [x] Test instructions appear in every chat inside the project.
+- [x] Test instructions do not appear outside the project.
+- [x] Test one user's project instructions cannot enter another user's chat.
+- [x] Test presets still work with project instructions.
+- [x] Test empty instructions add no empty system message.
+- [x] Test streaming and non-streaming context use the same project instructions.
 
 ### Phase gate
 
-- [ ] Project instructions are owner-scoped and consistent across chat modes.
-- [ ] Existing preset behavior remains intact.
+- [x] Project instructions are owner-scoped and consistent across chat modes.
+- [x] Existing preset behavior remains intact.
 
 ## Phase 4: Project Files and Scoped Retrieval
 
 ### File extraction and indexing
 
-- [ ] Reuse existing upload resolution and document extraction code.
-- [ ] Reuse existing chunking and embedding lanes.
-- [ ] Avoid a second upload directory or upload metadata store.
-- [ ] Index project chunks with `owner`, `scope`, `project_id`, `upload_id`, and filename metadata.
-- [ ] Set `scope` to `project` for project chunks.
-- [ ] Include project ID and upload ID in generated chunk identity.
-- [ ] Preserve legacy document IDs for existing non-project content.
-- [ ] Run blocking extraction and indexing outside the async event loop.
+- [x] Reuse existing upload resolution and document extraction code.
+- [x] Reuse existing chunking and embedding lanes.
+- [x] Avoid a second upload directory or upload metadata store.
+- [x] Index project chunks with `owner`, `scope`, `project_id`, `upload_id`, and filename metadata.
+- [x] Set `scope` to `project` for project chunks.
+- [x] Include project ID and upload ID in generated chunk identity.
+- [x] Preserve legacy document IDs for existing non-project content.
+- [x] Run blocking extraction and indexing outside the async event loop.
 
 ### Retrieval isolation
 
-- [ ] Extend RAG search with optional project scope.
-- [ ] Project searches must filter by owner and exact project ID.
-- [ ] Normal personal RAG must exclude chunks where `scope=project`.
-- [ ] Treat legacy chunks without a scope as personal content.
-- [ ] Apply the same filtering in vector and keyword fallback paths.
-- [ ] Dedupe results without merging chunks from different projects.
-- [ ] Return project file source metadata for the existing source UI.
+- [x] Extend RAG search with optional project scope.
+- [x] Project searches must filter by owner and exact project ID.
+- [x] Normal personal RAG must exclude chunks where `scope=project`.
+- [x] Treat legacy chunks without a scope as personal content.
+- [x] Apply the same filtering in vector and keyword fallback paths.
+- [x] Dedupe results without merging chunks from different projects.
+- [x] Return project file source metadata for the existing source UI.
 
 ### Context injection
 
-- [ ] Retrieve no more than five relevant project chunks per turn.
-- [ ] Apply the existing similarity threshold.
-- [ ] Wrap retrieved file text with `untrusted_context_message()`.
-- [ ] Cap total injected project file text using the existing context budget pattern.
-- [ ] Keep normal memory behavior unchanged.
-- [ ] If Chroma is unavailable, fall back to capped extraction from project files.
-- [ ] A corrupt file must not fail the whole chat.
+- [x] Retrieve no more than five relevant project chunks per turn.
+- [x] Apply the existing similarity threshold.
+- [x] Wrap retrieved file text with `untrusted_context_message()`.
+- [x] Cap total injected project file text using the existing context budget pattern.
+- [x] Keep normal memory behavior unchanged.
+- [x] If Chroma is unavailable, fall back to capped extraction from project files.
+- [x] A corrupt file must not fail the whole chat.
 
 ### File removal and project deletion
 
-- [ ] Add scoped RAG deletion by owner, project ID, and optional upload ID.
-- [ ] Remove only the selected project's chunks.
-- [ ] Removing one project file must not remove an identical file from another project.
-- [ ] Deleting a project must remove all its chunks.
-- [ ] Keep uploaded bytes until reference-aware cleanup decides they are unreferenced.
+- [x] Add scoped RAG deletion by owner, project ID, and optional upload ID.
+- [x] Remove only the selected project's chunks.
+- [x] Removing one project file must not remove an identical file from another project.
+- [x] Deleting a project must remove all its chunks.
+- [x] Keep uploaded bytes until reference-aware cleanup decides they are unreferenced.
 
 ### Verification
 
-- [ ] Test same-project retrieval.
-- [ ] Test cross-project retrieval denial.
-- [ ] Test cross-owner retrieval denial.
-- [ ] Test ordinary personal RAG excludes project chunks.
-- [ ] Test vector and keyword fallback isolation.
-- [ ] Test identical text in two projects remains independently indexed.
-- [ ] Test file removal deletes only matching chunks.
-- [ ] Test degraded behavior without Chroma.
+- [x] Test same-project retrieval.
+- [x] Test cross-project retrieval denial.
+- [x] Test cross-owner retrieval denial.
+- [x] Test ordinary personal RAG excludes project chunks.
+- [x] Test vector and keyword fallback isolation.
+- [x] Test identical text in two projects remains independently indexed.
+- [x] Test file removal deletes only matching chunks.
+- [x] Test degraded behavior without Chroma.
 
 ### Phase gate
 
-- [ ] Relevant project files work across separate chats in the same project.
-- [ ] No project chunk appears in another project or ordinary chat.
-- [ ] File lifecycle and upload cleanup remain coherent.
+- [x] Relevant project files work across separate chats in the same project.
+- [x] No project chunk appears in another project or ordinary chat.
+- [x] File lifecycle and upload cleanup remain coherent.
 
 ## Phase 5: Projects UI
 
@@ -580,3 +580,28 @@ Checks run:
 Result: Phase 2 gate passed. Project files reserve uploads and survive cleanup; project deletion detaches chats and preserves messages and upload bytes.
 Blockers: Project RAG chunk lifecycle is deferred until Phase 4 provides it.
 Next phase: Phase 3 - Project Instructions in Chat Context, only when requested.
+
+Date: 2026-09-22
+Executor: Codex
+Phase: 3 - Project Instructions in Chat Context
+Changed files: routes/chat_helpers.py, src/chat_processor.py, tests/test_chat_helpers.py, tests/test_chat_processor_pinned_memory.py, PROJECTS_IMPLEMENTATION_PLAN.md
+Checks run:
+- `rtk venv/bin/python -m pytest -q tests/test_chat_helpers.py tests/test_chat_processor_pinned_memory.py tests/test_kv_cache_invalidation_2927.py tests/test_user_time.py` - passed: 63 passed
+- `rtk venv/bin/python -m pytest -q tests/test_chat_helpers.py tests/test_chat_processor_pinned_memory.py tests/test_kv_cache_invalidation_2927.py tests/test_user_time.py tests/test_chat_stream_scope.py tests/test_api_chat_security.py tests/test_chat_route_tool_policy.py tests/test_chat_processor_web_search.py` - passed: 115 passed
+- `rtk venv/bin/python -m py_compile routes/chat_helpers.py src/chat_processor.py tests/test_chat_helpers.py tests/test_chat_processor_pinned_memory.py` - passed
+- `rtk git diff --check` and `rtk git diff --cached --check` - passed
+Result: Phase 3 gate passed. Project instructions are loaded by exact owner, placed after the selected preset and before the untrusted-context policy, and shared by sync, streaming, and agent context construction.
+Blockers: None.
+Next phase: Phase 4 - Project Files and Scoped Retrieval, only when requested.
+
+Date: 2026-09-22
+Executor: Codex
+Phase: 4 - Project Files and Scoped Retrieval
+Changed files: app.py, routes/project_routes.py, routes/chat_helpers.py, src/chat_processor.py, src/personal_docs.py, src/rag_manager.py, src/rag_vector.py, tests/helpers/embedding_lanes.py, tests/test_project_routes.py, tests/test_project_rag.py, PROJECTS_IMPLEMENTATION_PLAN.md
+Checks run:
+- `rtk venv/bin/python -m pytest -q tests/test_project_database.py tests/test_project_routes.py tests/test_project_rag.py tests/test_rag_search_signature.py tests/test_rag_keyword_fallback_owner.py tests/test_rag_vector_id_stability.py tests/test_rag_manager_owner_compat.py tests/test_rag_remove_directory_scope.py tests/test_rag_vector_rename_owner.py tests/test_embedding_lanes_rag.py tests/test_upload_handler_cleanup.py tests/test_upload_routes_owner_scope.py tests/test_chat_helpers.py tests/test_chat_processor_pinned_memory.py tests/test_kv_cache_invalidation_2927.py tests/test_user_time.py tests/test_chat_stream_scope.py tests/test_app.py` - passed: 133 passed
+- `rtk venv/bin/python -m py_compile app.py routes/project_routes.py routes/chat_helpers.py src/chat_processor.py src/personal_docs.py src/rag_vector.py src/rag_manager.py tests/test_project_rag.py tests/test_project_routes.py tests/helpers/embedding_lanes.py` - passed
+- `rtk git diff --check` and `rtk git diff --cached --check` - passed
+Result: Phase 4 gate passed. Project chunks are owner/project/upload scoped in vector and keyword retrieval, stale chunks are excluded by current project file links, and unavailable RAG falls back to capped untrusted extraction.
+Blockers: None.
+Next phase: Phase 5 - Projects UI, only when requested.

@@ -269,6 +269,11 @@ class ChatProcessor:
         use_memory: bool = True,
         time_filter: Optional[str] = None,
         preset_system_prompt: Optional[str] = None,
+        project_instructions: Optional[str] = None,
+        project_id: Optional[str] = None,
+        project_owner: Optional[str] = None,
+        project_upload_ids: Optional[set[str]] = None,
+        project_file_fallbacks: Optional[List[Dict[str, Any]]] = None,
         owner: Optional[str] = None,
         character_name: Optional[str] = None,
         agent_mode: bool = False,
@@ -301,6 +306,11 @@ class ChatProcessor:
             preface.append({
                 "role": "system",
                 "content": preset_system_prompt
+            })
+        if project_instructions and project_instructions.strip():
+            preface.append({
+                "role": "system",
+                "content": project_instructions,
             })
         preface.append({
             "role": "system",
@@ -363,7 +373,16 @@ class ChatProcessor:
             try:
                 rag_manager = getattr(self.personal_docs_manager, 'rag_manager', None)
                 if rag_manager:
-                    results = rag_manager.search(message, k=5, owner=owner)
+                    if project_id:
+                        results = rag_manager.search(
+                            message,
+                            k=5,
+                            owner=project_owner,
+                            project_id=project_id,
+                            upload_ids=project_upload_ids,
+                        ) if project_owner else []
+                    else:
+                        results = rag_manager.search(message, k=5, owner=owner)
                     # Filter by similarity threshold
                     relevant = [r for r in results if r.get("similarity", 0) >= self.RAG_SIMILARITY_THRESHOLD]
                     if relevant:
@@ -372,7 +391,9 @@ class ChatProcessor:
                             {
                                 "filename": r["metadata"].get("filename", r["metadata"].get("source", "unknown")),
                                 "snippet": r["document"][:200],
-                                "similarity": round(r.get("similarity", 0), 3)
+                                "similarity": round(r.get("similarity", 0), 3),
+                                "project_id": r["metadata"].get("project_id"),
+                                "upload_id": r["metadata"].get("upload_id"),
                             }
                             for r in relevant
                         ]
@@ -387,6 +408,29 @@ class ChatProcessor:
                         ))
             except Exception as e:
                 logger.warning(f"RAG retrieval failed: {e}")
+
+        if use_rag and project_file_fallbacks:
+            fallback_chunks = project_file_fallbacks[:5]
+            rag_sources.extend([
+                {
+                    "filename": chunk["metadata"].get("filename", "unknown"),
+                    "snippet": chunk["document"][:200],
+                    "similarity": 0.0,
+                    "project_id": project_id,
+                    "upload_id": chunk["metadata"].get("upload_id"),
+                }
+                for chunk in fallback_chunks
+            ])
+            fallback_content = "Relevant project files:\n\n" + "\n\n---\n\n".join(
+                f"[{chunk['metadata'].get('filename', 'unknown')}]\n{chunk['document']}"
+                for chunk in fallback_chunks
+            )
+            if len(fallback_content) > 10000:
+                fallback_content = fallback_content[:10000] + "\n[Truncated]"
+            preface.append(untrusted_context_message(
+                "project files",
+                fallback_content,
+            ))
 
         # Add web search if enabled
         web_sources = []

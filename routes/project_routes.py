@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,6 +13,9 @@ from src.auth_helpers import (
     storage_owner_for_request,
 )
 from src.upload_handler import reserve_upload_ids
+
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectCreate(BaseModel):
@@ -106,7 +110,35 @@ def _sync_session_project(session_manager, session_id: str, project_id: str | No
         session.project_id = project_id
 
 
-def setup_project_routes(session_manager, upload_handler=None) -> APIRouter:
+def _index_project_file(rag_manager, project: Project, project_file: ProjectFile, upload: dict) -> None:
+    if rag_manager is None or not upload.get("path"):
+        return
+    try:
+        result = rag_manager.index_project_file(
+            upload["path"],
+            owner=project.owner,
+            project_id=project.id,
+            upload_id=project_file.upload_id,
+            filename=project_file.filename,
+        )
+        if not result.get("success"):
+            logger.warning("Project file indexing failed: %s", result.get("message", "unknown error"))
+    except Exception:
+        logger.warning("Project file indexing failed", exc_info=True)
+
+
+def _delete_project_chunks(rag_manager, owner: str, project_id: str, upload_id: str | None = None) -> None:
+    if rag_manager is None:
+        return
+    try:
+        result = rag_manager.delete_project_chunks(owner, project_id, upload_id)
+        if not result.get("success"):
+            logger.warning("Project chunk deletion failed: %s", result.get("message", "unknown error"))
+    except Exception:
+        logger.warning("Project chunk deletion failed", exc_info=True)
+
+
+def setup_project_routes(session_manager, upload_handler=None, rag_manager=None) -> APIRouter:
     router = APIRouter(
         prefix="/api",
         tags=["projects"],
@@ -188,6 +220,7 @@ def setup_project_routes(session_manager, upload_handler=None) -> APIRouter:
         db = SessionLocal()
         try:
             project = _project_or_404(db, project_id, _owner(request))
+            project_owner = project.owner
             session_query = _project_sessions_query(db, project.id, request)
             session_ids = [session.id for session in session_query.all()]
             session_query.update(
@@ -198,6 +231,7 @@ def setup_project_routes(session_manager, upload_handler=None) -> APIRouter:
             )
             db.delete(project)
             db.commit()
+            _delete_project_chunks(rag_manager, project_owner, project_id)
             for session_id in session_ids:
                 _sync_session_project(session_manager, session_id, None)
             return {"id": project_id, "deleted": True}
@@ -252,6 +286,7 @@ def setup_project_routes(session_manager, upload_handler=None) -> APIRouter:
                     return _project_file_dict(existing)
                 raise
             db.refresh(project_file)
+            _index_project_file(rag_manager, project, project_file, upload)
             return _project_file_dict(project_file)
         except Exception:
             db.rollback()
@@ -272,6 +307,7 @@ def setup_project_routes(session_manager, upload_handler=None) -> APIRouter:
                 raise HTTPException(404, "Project file not found")
             db.delete(project_file)
             db.commit()
+            _delete_project_chunks(rag_manager, project.owner, project.id, upload_id)
             return {"upload_id": upload_id, "detached": True}
         except Exception:
             db.rollback()
