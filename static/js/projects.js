@@ -5,6 +5,7 @@ let sessionModule = null;
 let projects = [];
 let activeProjectId = null;
 let modal = null;
+let instructionsDrafts = {};
 
 function detail(error, fallback) {
   return error?.message || fallback;
@@ -144,8 +145,9 @@ function renderDetail(data) {
   body.textContent = '';
 
   const name = makeField('Name', project.name);
-  const instructions = makeField('Instructions', project.instructions, true);
+  const instructions = makeField('Instructions', instructionsDrafts[project.id] ?? project.instructions ?? '', true);
   instructions.input.placeholder = 'Instructions for chats in this project';
+  instructions.input.addEventListener('input', () => { instructionsDrafts[project.id] = instructions.input.value; });
   const save = button('Save', 'confirm-btn confirm-btn-primary');
   const removeProject = button('Delete project', 'confirm-btn confirm-btn-danger');
   const settingsActions = document.createElement('div');
@@ -163,6 +165,7 @@ function renderDetail(data) {
         body: JSON.stringify({ name: name.input.value, instructions: instructions.input.value }),
       });
       projects = projects.map(item => item.id === updated.id ? updated : item);
+      delete instructionsDrafts[project.id];
       renderSidebar();
       syncSessionProject(sessionModule?.getSessions?.().find(session => session.id === sessionModule?.getCurrentSessionId?.())?.project_id);
       uiModule.showToast('Project saved');

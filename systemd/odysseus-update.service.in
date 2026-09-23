@@ -8,4 +8,4 @@ ConditionPathExists=@REPOSITORY@/scripts/update_odysseus
 Type=oneshot
 WorkingDirectory=@REPOSITORY@
 EnvironmentFile=-@REPOSITORY@/.env
-ExecStart=/usr/bin/flock -n "@REPOSITORY@/data/odysseus-update.lock" /bin/sh -c 'exec "@REPOSITORY@/scripts/update_odysseus"'
+ExecStart="@REPOSITORY@/scripts/update_odysseus"

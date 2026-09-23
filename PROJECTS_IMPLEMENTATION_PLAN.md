@@ -358,62 +358,62 @@ Target branch for VM updates: `main`
 
 ### Update script
 
-- [ ] Add `scripts/update_odysseus`.
-- [ ] Use POSIX-safe shell behavior compatible with the VM target.
-- [ ] Resolve and validate the exact repository root before any mutation.
-- [ ] Acquire a file lock before checking or updating.
-- [ ] Require the configured branch, default `main`.
-- [ ] Reject any dirty tracked or untracked worktree state.
-- [ ] Fetch only the configured remote and branch.
-- [ ] Reject non-fast-forward history.
-- [ ] Record the old and target commit hashes.
-- [ ] Run the existing local backup command before merging.
-- [ ] Update code with fast-forward-only semantics.
-- [ ] Install requirements into the existing project venv.
-- [ ] Run existing idempotent setup required by native installs.
-- [ ] Restart Odysseus only after all preparation succeeds.
-- [ ] Write update status atomically to `data/update-status.json`.
-- [ ] Redact credentials, remote URLs with secrets, and environment values from status output.
-- [ ] Return success without restarting when no update exists.
+- [x] Add `scripts/update_odysseus`.
+- [x] Use POSIX-safe shell behavior compatible with the VM target.
+- [x] Resolve and validate the exact repository root before any mutation.
+- [x] Acquire a file lock before checking or updating.
+- [x] Require the configured branch, default `main`.
+- [x] Reject any dirty tracked or untracked worktree state.
+- [x] Fetch only the configured remote and branch.
+- [x] Reject non-fast-forward history.
+- [x] Record the old and target commit hashes.
+- [x] Run the existing local backup command before merging.
+- [x] Update code with fast-forward-only semantics.
+- [x] Install requirements into the existing project venv.
+- [x] Run existing idempotent setup required by native installs.
+- [x] Restart Odysseus only after all preparation succeeds.
+- [x] Write update status atomically to `data/update-status.json`.
+- [x] Redact credentials, remote URLs with secrets, and environment values from status output.
+- [x] Return success without restarting when no update exists.
 
 ### Backend routes
 
-- [ ] Add a small dedicated update router or place endpoints in the existing admin-owned system route.
-- [ ] Implement `GET /api/admin/update/status`.
-- [ ] Implement `POST /api/admin/update`.
-- [ ] Require admin authentication for both endpoints.
-- [ ] Return 404 or disabled state unless `ODYSSEUS_SELF_UPDATE=true`.
-- [ ] Start only the fixed `odysseus-update.service` command.
-- [ ] Use argument arrays with no shell interpolation.
-- [ ] Use `systemctl --user start --no-block odysseus-update.service`.
-- [ ] Reject a second request while an update is active.
+- [x] Add a small dedicated update router or place endpoints in the existing admin-owned system route.
+- [x] Implement `GET /api/admin/update/status`.
+- [x] Implement `POST /api/admin/update`.
+- [x] Require admin authentication for both endpoints.
+- [x] Return 404 or disabled state unless `ODYSSEUS_SELF_UPDATE=true`.
+- [x] Start only the fixed `odysseus-update.service` command.
+- [x] Use argument arrays with no shell interpolation.
+- [x] Use `systemctl --user start --no-block odysseus-update.service`.
+- [x] Reject a second request while an update is active.
 
 ### Failure behavior
 
-- [ ] A fetch failure leaves the running process untouched.
-- [ ] A dirty worktree leaves the running process untouched.
-- [ ] A backup failure leaves the running process untouched.
-- [ ] A dependency or setup failure does not restart the app.
-- [ ] Every failure writes a concise status message and timestamp.
-- [ ] Do not implement automatic Git rollback in MVP.
+- [x] A fetch failure leaves the running process untouched.
+- [x] A dirty worktree leaves the running process untouched.
+- [x] A backup failure leaves the running process untouched.
+- [x] A dependency or setup failure does not restart the app.
+- [x] Every failure writes a concise status message and timestamp.
+- [x] Do not implement automatic Git rollback in MVP.
 
 ### Verification
 
-- [ ] Run `rtk bash -n scripts/update_odysseus`.
-- [ ] Test disabled update endpoints.
-- [ ] Test non-admin denial.
-- [ ] Test clean no-update result.
-- [ ] Test dirty worktree rejection in an isolated temporary repository.
-- [ ] Test non-fast-forward rejection in an isolated temporary repository.
-- [ ] Test concurrent request rejection.
-- [ ] Test status file redaction and atomic replacement.
-- [ ] Test the update flow against a disposable native VM or equivalent environment.
+- [x] Run `rtk bash -n scripts/update_odysseus`.
+- [x] Test disabled update endpoints.
+- [x] Test non-admin denial.
+- [x] Test clean no-update result.
+- [x] Test dirty worktree rejection in an isolated temporary repository.
+- [x] Test non-fast-forward rejection in an isolated temporary repository.
+- [x] Test concurrent request rejection.
+- [x] Test status file redaction and atomic replacement.
+- [x] Test the update flow against a disposable native VM or equivalent environment.
 
 ### Phase gate
 
-- [ ] Update cannot execute arbitrary browser-supplied input.
-- [ ] Failed preparation never restarts the running service.
-- [ ] Successful update restarts into the target commit.
+- [x] Update cannot execute arbitrary browser-supplied input.
+- [x] Failed preparation never restarts the running service.
+- [x] Successful update restarts into the target commit.
 
 ## Phase 8: Updater UI and Deployment Documentation
 
@@ -740,3 +740,17 @@ Checks run:
 Result: Project sidebar names use the sidebar text scale. Empty project names stay in the creation dialog and receive native required-field feedback.
 Blockers: Manual browser verification remains outstanding because computer use is excluded by user instruction.
 Next phase: User can manually verify create, update, upload, move, and delete flows, then close Phase 5. Do not start Phase 6.
+
+Date: 2026-09-23
+Executor: Codex
+Phase: 7 - Native Self-Update Backend
+Changed files: app.py, install-service.sh, systemd/odysseus-update.service.in, scripts/update_odysseus, routes/update_routes.py, tests/test_update_flow.py, PROJECTS_IMPLEMENTATION_PLAN.md
+Checks run:
+- `rtk venv/bin/python -m pytest -q tests/test_update_flow.py tests/test_app.py` - passed: 39 passed
+- `rtk venv/bin/python -m py_compile routes/update_routes.py tests/test_update_flow.py app.py` - passed
+- `rtk bash -n scripts/update_odysseus install-service.sh` and `rtk sh -n scripts/update_odysseus` - passed
+- `rtk systemd-analyze --user verify` on generated user units - passed
+- `rtk git diff --check` - passed
+Result: Opt-in, admin-only native updates now reject dirty trees, branch mismatch, non-fast-forward history, and concurrent runs. Disposable Git repositories exercise the real installer and simulated service restart at the target commit. Preparation failures never restart the app.
+Blockers: None for Phase 7. A live VM update was not run; the disposable native-install harness is the equivalent verification environment.
+Next phase: Phase 8 - Updater UI and Deployment Documentation, only when requested.

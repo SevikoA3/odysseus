@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+
+repo_dir=$(CDPATH= cd -P "$(dirname "$0")/.." && pwd)
+[ "$(git -C "$repo_dir" rev-parse --show-toplevel 2>/dev/null)" = "$repo_dir" ] || {
+    echo 'update: script must live in the repository root/scripts' >&2
+    exit 1
+}
+cd "$repo_dir"
+
+umask 077
+mkdir -p data
+exec 9>data/odysseus-update.lock
+flock -n 9 || exit 1
+
+status_file=data/update-status.json
+old_commit=
+target_commit=
+write_status() {
+    state=$1 message=$2
+    tmp="${status_file}.tmp.$$"
+    printf '{"state":"%s","message":"%s","old_commit":"%s","target_commit":"%s","updated_at":"%s"}\n' \
+        "$state" "$message" "$old_commit" "$target_commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$tmp"
+    mv -f "$tmp" "$status_file"
+}
+fail() {
+    write_status failed "$1"
+    echo "update: $1" >&2
+    exit 1
+}
+
+write_status running 'Checking for updates'
+[ "${ODYSSEUS_SELF_UPDATE:-}" = true ] || fail 'Self-update is disabled'
+branch=${ODYSSEUS_UPDATE_BRANCH:-main}
+remote=${ODYSSEUS_UPDATE_REMOTE:-origin}
+venv_python=${ODYSSEUS_VENV_DIR:-$repo_dir/venv}/bin/python
+backup=${ODYSSEUS_BACKUP_CMD:-$repo_dir/scripts/odysseus-backup}
+
+git check-ref-format --branch "$branch" >/dev/null 2>&1 || fail 'Invalid update branch'
+case "$remote" in ''|-*) fail 'Invalid update remote' ;; esac
+git remote get-url "$remote" >/dev/null 2>&1 || fail 'Update remote is unavailable'
+[ "$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" = "$branch" ] || fail 'Current branch differs from configured branch'
+old_commit=$(git rev-parse HEAD 2>/dev/null) || fail 'Current commit is unavailable'
+changes=$(git status --porcelain --untracked-files=all 2>/dev/null) || fail 'Cannot check worktree'
+[ -z "$changes" ] || fail 'Dirty worktree rejected'
+[ -x "$venv_python" ] || fail 'Project virtual environment is unavailable'
+
+git fetch --quiet --no-tags "$remote" "refs/heads/$branch" >/dev/null 2>&1 || fail 'Update fetch failed'
+target_commit=$(git rev-parse --verify 'FETCH_HEAD^{commit}' 2>/dev/null) || fail 'Fetched commit is unavailable'
+git merge-base --is-ancestor "$old_commit" "$target_commit" || fail 'Non-fast-forward update rejected'
+if [ "$old_commit" = "$target_commit" ]; then
+    write_status up_to_date 'Already at target commit'
+    exit 0
+fi
+
+[ -x "$backup" ] || fail 'Backup command is unavailable'
+"$backup" snapshot >/dev/null 2>&1 || fail 'Backup failed'
+git merge --ff-only "$target_commit" >/dev/null 2>&1 || fail 'Fast-forward merge failed'
+"$venv_python" -m pip install --quiet -r "$repo_dir/requirements.txt" >/dev/null 2>&1 || fail 'Dependency install failed'
+/bin/bash "$repo_dir/install-service.sh" --no-start >/dev/null 2>&1 || fail 'Service setup failed'
+systemctl --user restart odysseus-ui.service >/dev/null 2>&1 || fail 'Service restart failed'
+write_status success 'Update completed'

@@ -695,6 +695,10 @@ app.include_router(setup_project_routes(session_manager, upload_handler, rag_man
 from routes.admin_wipe.admin_wipe_routes import setup_admin_wipe_routes
 app.include_router(setup_admin_wipe_routes(session_manager))
 
+# Native self-update (Phase 7): disabled unless ODYSSEUS_SELF_UPDATE=true
+from routes.update_routes import setup_update_routes
+app.include_router(setup_update_routes())
+
 # Memory
 from routes.memory.memory_routes import setup_memory_routes
 memory_router = setup_memory_routes(memory_manager, session_manager, memory_vector=memory_vector)

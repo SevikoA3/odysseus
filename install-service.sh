@@ -35,5 +35,9 @@ render_unit "$repo_dir/systemd/odysseus-ui.service.in" "$unit_dir/odysseus-ui.se
 render_unit "$repo_dir/systemd/odysseus-update.service.in" "$unit_dir/odysseus-update.service"
 
 systemctl --user daemon-reload
-systemctl --user enable --now odysseus-ui.service
-echo "Odysseus is running as a user service."
+if [[ "${1:-}" == "--no-start" ]]; then
+  systemctl --user enable odysseus-ui.service
+else
+  systemctl --user enable --now odysseus-ui.service
+  echo "Odysseus is running as a user service."
+fi
