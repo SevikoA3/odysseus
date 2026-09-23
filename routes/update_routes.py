@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import subprocess
 import tempfile
 from datetime import datetime, timezone
@@ -45,6 +46,21 @@ def _status_payload():
                     status = _status_payload()
         except (ValueError, TypeError, OSError, subprocess.TimeoutExpired):
             pass
+    return status
+
+
+def _update_status_payload():
+    status = _status_payload()
+    try:
+        result = subprocess.run(
+            ["git", "-C", os.path.dirname(os.path.dirname(__file__)), "rev-parse", "--verify", "HEAD"],
+            capture_output=True, text=True, timeout=3,
+        )
+        commit = result.stdout.strip()
+        if result.returncode == 0 and re.fullmatch(r"[0-9a-f]{40,64}", commit):
+            status["current_commit"] = commit
+    except (OSError, subprocess.TimeoutExpired):
+        pass
     return status
 
 
@@ -99,7 +115,7 @@ def setup_update_routes():
     @router.get("/api/admin/update/status")
     async def update_status(request: Request):
         _check_access(request)
-        return await asyncio.to_thread(_status_payload)
+        return await asyncio.to_thread(_update_status_payload)
 
     @router.post("/api/admin/update")
     async def trigger_update(request: Request):

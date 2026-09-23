@@ -451,9 +451,10 @@ def test_non_admin_denied(update_routes_mod, monkeypatch):
         lambda request: (_ for _ in ()).throw(HTTPException(403, "Admin only")),
     )
     endpoints = _endpoints(update_routes_mod.setup_update_routes())
-    with pytest.raises(HTTPException) as ei:
-        asyncio.run(endpoints[("POST", "/api/admin/update")](_req()))
-    assert ei.value.status_code == 403
+    for route in (("GET", "/api/admin/update/status"), ("POST", "/api/admin/update")):
+        with pytest.raises(HTTPException) as ei:
+            asyncio.run(endpoints[route](_req()))
+        assert ei.value.status_code == 403
 
 
 def test_auth_disabled_denied(update_routes_mod, monkeypatch):
@@ -554,6 +555,14 @@ def test_status_payload_reads_data_dir(tmp_path, update_routes_mod, monkeypatch)
     assert payload["state"] == "success"
     assert payload["enabled"] is True
     assert "secret" not in payload
+
+
+def test_status_payload_reports_current_commit(tmp_path, update_routes_mod, monkeypatch):
+    import src.constants as constants
+    monkeypatch.setattr(constants, "DATA_DIR", str(tmp_path))
+    commit = "a" * 40
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=commit + "\n"))
+    assert update_routes_mod._update_status_payload()["current_commit"] == commit
 
 
 def test_status_payload_missing_file(tmp_path, update_routes_mod, monkeypatch):

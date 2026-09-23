@@ -73,6 +73,35 @@ run this once as a host administrator:
 sudo loginctl enable-linger "$USER"
 ```
 
+For a VM, use a dedicated unprivileged account and keep the checkout on
+`main` if you plan to use native updates. Put these values in its `.env`:
+
+```env
+AUTH_ENABLED=true
+LOCALHOST_BYPASS=false
+ODYSSEUS_SELF_UPDATE=true
+```
+
+`ODYSSEUS_SELF_UPDATE` is optional and defaults to off. Restart
+`odysseus-ui.service` after changing `.env`. Put a reverse proxy with HTTPS
+in front of `http://127.0.0.1:7000`; keep the app bound to loopback. Configure
+the proxy to forward the original HTTPS scheme for secure session cookies.
+
+Admins can run **Settings > System > Native Update** after opting in. The
+updater requires a clean worktree and a fast-forward update from `origin/main`
+(or `ODYSSEUS_UPDATE_REMOTE` and `ODYSSEUS_UPDATE_BRANCH` set in `.env`). It
+backs up data before merging, installs requirements in the existing venv, then
+restarts the service. Local or untracked changes block the update. Resolve
+them deliberately before retrying; do not discard them to force an update.
+
+If an update fails, log in as the service user and inspect
+`data/update-status.json` and `journalctl --user -u odysseus-update.service -n 100`.
+The updater does not roll back code automatically. After resolving the reported
+problem, run `venv/bin/python -m pip install -r requirements.txt`,
+`./install-service.sh --no-start`, and
+`systemctl --user restart odysseus-ui.service`. If code must be rolled back,
+restore a known commit and the backup made before the update, then restart.
+
 ### Apple Silicon
 Docker on macOS cannot use the Metal GPU. For GPU-accelerated Cookbook on an
 M-series Mac, run Odysseus natively:

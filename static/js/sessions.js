@@ -1797,6 +1797,7 @@ export async function loadSessions() {
       const s = sessions.find(x => x.id === targetId);
       const metaEl = document.getElementById('current-meta');
       if (metaEl && s) metaEl.textContent = s.name;
+      window.projectsModule?.syncSessionProject?.(s?.project_id || null);
     }
 
     // No session selected — still enable input so slash commands (e.g. /setup) work
@@ -2204,8 +2205,8 @@ export function createDirectChat(url, modelId, endpointId, opts = {}) {
   if (
     _pendingChat &&
     _pendingChat.modelId &&
-    _pendingChat.source === 'manual' &&
-    incomingSource !== 'manual'
+    (_pendingChat.source === 'manual' || _pendingChat.source === 'project') &&
+    incomingSource === 'default'
   ) {
     updateModelPicker();
     return;

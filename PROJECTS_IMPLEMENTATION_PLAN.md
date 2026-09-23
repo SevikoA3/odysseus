@@ -1,6 +1,6 @@
 # Odysseus Projects and Native Updater Implementation Plan
 
-Status: planned
+Status: in progress
 
 Target deployment: native Python, project venv, systemd user services
 
@@ -419,54 +419,54 @@ Target branch for VM updates: `main`
 
 ### Settings UI
 
-- [ ] Add a Native Update card under Settings > System.
-- [ ] Show the card only to admins.
-- [ ] Show disabled configuration clearly when self-update is off.
-- [ ] Show current commit when available.
-- [ ] Add an `Update & restart` button.
-- [ ] Require confirmation before triggering an update.
-- [ ] Poll update status while an update is active.
-- [ ] Show updating, success, no-update, rejected, and failed states.
-- [ ] Disable the button while an update is active.
-- [ ] Do not display raw command output or environment values.
+- [x] Add a Native Update card under Settings > System.
+- [x] Show the card only to admins.
+- [x] Show disabled configuration clearly when self-update is off.
+- [x] Show current commit when available.
+- [x] Add an `Update & restart` button.
+- [x] Require confirmation before triggering an update.
+- [x] Poll update status while an update is active.
+- [x] Show updating, success, no-update, rejected, and failed states.
+- [x] Disable the button while an update is active.
+- [x] Do not display raw command output or environment values.
 
 ### Documentation
 
-- [ ] Document native venv installation in `website/setup.md` if current instructions are insufficient.
-- [ ] Document systemd user service installation.
-- [ ] Document lingering, localhost binding, reverse proxy, and HTTPS expectations.
-- [ ] Document `AUTH_ENABLED=true` and `LOCALHOST_BYPASS=false` for VM deployment.
-- [ ] Document explicit self-update opt-in.
-- [ ] Document dirty-worktree and fast-forward requirements.
-- [ ] Document manual recovery after an update failure.
+- [x] Document native venv installation in `website/setup.md` if current instructions are insufficient.
+- [x] Document systemd user service installation.
+- [x] Document lingering, localhost binding, reverse proxy, and HTTPS expectations.
+- [x] Document `AUTH_ENABLED=true` and `LOCALHOST_BYPASS=false` for VM deployment.
+- [x] Document explicit self-update opt-in.
+- [x] Document dirty-worktree and fast-forward requirements.
+- [x] Document manual recovery after an update failure.
 
 ### Verification
 
-- [ ] Run syntax checks for changed Settings JavaScript.
-- [ ] Verify admin visibility.
-- [ ] Verify non-admin invisibility and backend denial.
-- [ ] Verify page reload during update recovers status from disk.
-- [ ] Verify UI remains understandable after the app restarts.
+- [x] Run syntax checks for changed Settings JavaScript.
+- [x] Verify admin visibility.
+- [x] Verify non-admin invisibility and backend denial.
+- [x] Verify page reload during update recovers status from disk.
+- [x] Verify UI remains understandable after the app restarts.
 
 ### Phase gate
 
-- [ ] Admin can trigger and observe a native update without terminal access.
-- [ ] Non-admin users cannot discover or trigger update operations.
+- [x] Admin can trigger and observe a native update without terminal access.
+- [x] Non-admin users cannot discover or trigger update operations.
 
 ## Phase 9: End-to-End Verification and Stop
 
 ### Automated checks
 
-- [ ] Run all focused project tests.
-- [ ] Run all focused upload cleanup and ownership tests.
-- [ ] Run all focused RAG tests.
-- [ ] Run all focused session tests.
-- [ ] Run all focused updater tests.
-- [ ] Run Python compile checks for changed modules.
-- [ ] Run JavaScript syntax checks for changed modules.
-- [ ] Run shell syntax checks for changed scripts.
-- [ ] Run systemd unit verification.
-- [ ] Run the broader relevant test lane defined by repository guidance.
+- [x] Run all focused project tests.
+- [x] Run all focused upload cleanup and ownership tests.
+- [x] Run all focused RAG tests.
+- [x] Run all focused session tests.
+- [x] Run all focused updater tests.
+- [x] Run Python compile checks for changed modules.
+- [x] Run JavaScript syntax checks for changed modules.
+- [x] Run shell syntax checks for changed scripts.
+- [x] Run systemd unit verification.
+- [x] Run the broader relevant test lane defined by repository guidance.
 
 ### Manual project smoke test
 
@@ -498,12 +498,12 @@ Target branch for VM updates: `main`
 
 ### Final review
 
-- [ ] Review the complete diff for unrelated edits.
-- [ ] Confirm no secrets, logs, backups, or runtime data are tracked.
-- [ ] Confirm no new dependency was added without necessity.
-- [ ] Confirm project and updater security tests cover trust boundaries.
-- [ ] Update completed checkboxes in this file.
-- [ ] Add final verification commands and results to the Execution Log.
+- [x] Review the complete diff for unrelated edits.
+- [x] Confirm no secrets, logs, backups, or runtime data are tracked.
+- [x] Confirm no new dependency was added without necessity.
+- [x] Confirm project and updater security tests cover trust boundaries.
+- [x] Update completed checkboxes in this file.
+- [x] Add final verification commands and results to the Execution Log.
 
 ### Stop condition
 
@@ -754,3 +754,45 @@ Checks run:
 Result: Opt-in, admin-only native updates now reject dirty trees, branch mismatch, non-fast-forward history, and concurrent runs. Disposable Git repositories exercise the real installer and simulated service restart at the target commit. Preparation failures never restart the app.
 Blockers: None for Phase 7. A live VM update was not run; the disposable native-install harness is the equivalent verification environment.
 Next phase: Phase 8 - Updater UI and Deployment Documentation, only when requested.
+
+Date: 2026-09-23
+Executor: Codex
+Phase: 8 - Updater UI and Deployment Documentation
+Changed files: routes/update_routes.py, static/index.html, static/js/admin.js, static/js/nativeUpdate.js, static/style.css, website/setup.md, tests/test_update_flow.py, tests/test_native_update.mjs, anti-slop/audit-001-2026-09-23.md, PROJECTS_IMPLEMENTATION_PLAN.md
+Checks run:
+- `rtk node --test tests/test_native_update.mjs` - passed: disabled, active, no-update, rejected, failure, confirmation, restart recovery, admin-only markup.
+- `rtk node tests/helpers/test_settings_shell.js` - passed: Settings shell checks.
+- `rtk venv/bin/python -m pytest -q tests/test_update_flow.py tests/test_project_routes.py tests/test_chat_helpers.py tests/test_project_rag.py tests/test_chat_processor_pinned_memory.py tests/test_startup_session_bootstrap_js.py` - passed: 88 tests.
+- JavaScript syntax checks for changed modules, Python compile checks, and `rtk git diff --check` - passed.
+Result: Native Update card is admin-only, shows current commit and safe status text, confirms before starting, and polls through restart. Native deployment and recovery steps are documented. Phase 8 gate passed through automated UI and backend checks.
+Blockers: None. Browser visual inspection was not run because computer use is prohibited by user instruction.
+Next phase: Phase 9 - End-to-End Verification and Stop, only when requested.
+
+Date: 2026-09-23
+Executor: Codex
+Phase: Project file context correction during Phase 8
+Changed files: routes/chat_helpers.py, src/chat_processor.py, static/js/projects.js, static/js/sessions.js, static/style.css, tests/test_chat_helpers.py, tests/test_project_rag.py, tests/test_startup_session_bootstrap_js.py, PROJECTS_IMPLEMENTATION_PLAN.md
+Checks run:
+- Read-only database check: affected chat has no project ID; the owner has a project with three attached files.
+- Read-only retrieval check: linked project lookup returned five chunks and matched the requested shot in an uploaded Markdown file.
+- Focused Python project/chat tests and pending-session JavaScript harness - passed in the 88-test lane above.
+Result: Explicit New Chat in a project now replaces a pending personal chat. Chat header shows project membership and offers the existing move action. Linked chats receive an untrusted file list; unlinked chats with project files receive scope guidance without file contents.
+Blockers: None.
+Next phase: Phase 9, only when requested.
+
+Date: 2026-09-23
+Executor: Codex
+Phase: 9 - Automated verification and project-chat regression
+Changed files: static/js/sessions.js, static/js/modelPicker.js, static/style.css, tests/test_startup_session_bootstrap_js.py, plus thinking-level changes and anti-slop/audit-002-2026-09-23.md
+Checks run:
+- Read-only local session metadata: the reported 08:28 chat had no project ID while the project retained three files.
+- Regression test failed before the fix: a background default chat replaced a pending project chat. It passes after the fix and checks that session creation sends `project_id`.
+- `rtk proxy venv/bin/python -m pytest -q tests/test_project_*.py tests/test_upload_*.py tests/test_rag_*.py tests/test_session_*.py tests/test_update_flow.py tests/test_chat_helpers.py tests/test_foreground_model_routing.py tests/test_thinking_levels.py tests/test_startup_session_bootstrap_js.py tests/test_auth_policy.py` - 416 passed, 1 skipped.
+- `rtk proxy venv/bin/python -m pytest -q tests/test_personal_upload_isolation.py tests/test_personal_upload_privilege.py tests/test_api_token_tool_authority.py tests/test_auth_regressions.py tests/test_app.py` - 59 passed.
+- Adjacent embedding, retrieval, upload, session metadata, and sidebar tests - 41 passed.
+- Final focused rerun after the source-precedence adjustment - 63 passed.
+- `rtk proxy node --test tests/test_native_update.mjs` and Settings shell checks - passed.
+- Python compile, JavaScript syntax, shell syntax, rendered systemd unit verification, and `rtk proxy git diff --check` - passed.
+Result: Pending project membership survives background default chat creation, manual model changes, and automatic model fallback. Thinking effort is selectable and validated per supported provider and model. No dependency or runtime-data file was added to the diff.
+Blockers: Manual browser project flow and live VM updater checks remain unchecked because computer use is prohibited and no dedicated VM target is available in this session. The stop condition remains open.
+Next phase: Complete the unchecked manual smoke steps on the target app and VM, then close Phase 9.

@@ -275,6 +275,24 @@ globalThis.fetch = async () => {
   return response;
 };
 const authResult = await sessions.loadSessions();
+const pendingChat = sessions.hasPendingChat();
+const draft = message.value;
+const lastSessionId = localStorage.getItem('lastSessionId');
+const historyWrites = world.historyWrites();
+sessions.createDirectChat('http://model.test', 'manual/model', 'endpoint-1');
+await sessions.createProjectChat('project-1');
+const projectPending = sessions.getPendingChat();
+sessions.createDirectChat('http://model.test', 'test/model', 'endpoint-1', { source: 'default' });
+const projectAfterDefault = sessions.getPendingChat()?.projectId;
+let createdProjectId = null;
+globalThis.fetch = async (_url, options = {}) => {
+  if (options.method === 'POST') {
+    createdProjectId = options.body.get('project_id');
+    return { ok: true, json: async () => ({ id: 'project-session' }) };
+  }
+  return { ok: true, json: async () => [] };
+};
+const projectMaterialized = await sessions.materializePendingSession();
 
 console.log(JSON.stringify({
   seeded,
@@ -287,10 +305,14 @@ console.log(JSON.stringify({
   staleRouteRan,
   fetchCount,
   sessionIds: sessions.getSessions().map(session => session.id),
-  pendingChat: sessions.hasPendingChat(),
-  draft: message.value,
-  lastSessionId: localStorage.getItem('lastSessionId'),
-  historyWrites: world.historyWrites(),
+  pendingChat,
+  projectPending: projectPending?.projectId,
+  projectAfterDefault,
+  createdProjectId,
+  projectMaterialized,
+  draft,
+  lastSessionId,
+  historyWrites,
   errors: __sessionErrors,
   authResult,
   authRedirect: window.location.href,
@@ -354,3 +376,13 @@ def test_401_keeps_global_auth_redirect_contract(results):
     assert results["authRedirect"] == "/login"
     assert results["authAddedError"] is False
     assert results["sessionIds"] == ["existing"]
+
+
+def test_explicit_project_chat_replaces_pending_manual_chat(results):
+    assert results["projectPending"] == "project-1"
+
+
+def test_background_default_chat_does_not_replace_pending_project_chat(results):
+    assert results["projectAfterDefault"] == "project-1"
+    assert results["projectMaterialized"] is True
+    assert results["createdProjectId"] == "project-1"

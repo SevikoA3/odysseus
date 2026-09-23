@@ -85,6 +85,64 @@ let _deps = null;
 let _autoSelectingDefault = false;
 let _defaultChatPickInFlight = false;
 let _defaultPendingSeq = 0;
+let _thinkingRequestKey = '';
+const _thinkingLevelsCache = new Map();
+
+async function _updateThinkingLevel(modelId, url) {
+  const control = document.getElementById('thinking-level-control');
+  const select = document.getElementById('thinking-level');
+  if (!control || !select) return;
+  if (!modelId || !url) {
+    control.hidden = true;
+    _thinkingRequestKey = '';
+    return;
+  }
+  const tools = document.getElementById('mode-agent-btn')?.classList.contains('active')
+    || document.body.classList.contains('plan-mode-active');
+  const key = `${url}::${modelId}::${!!tools}`;
+  if (key === _thinkingRequestKey) return;
+  _thinkingRequestKey = key;
+  control.hidden = true;
+  let levels = _thinkingLevelsCache.get(key);
+  if (!levels) {
+    try {
+      const params = new URLSearchParams({ url, model: modelId, tools: String(!!tools) });
+      const response = await fetch(`${API_BASE}/api/thinking-levels?${params}`, { credentials: 'same-origin' });
+      if (!response.ok) throw new Error('Thinking levels unavailable');
+      levels = (await response.json()).levels || [];
+      _thinkingLevelsCache.set(key, levels);
+    } catch {
+      if (_thinkingRequestKey === key) {
+        _thinkingRequestKey = '';
+        const unavailable = document.createElement('option');
+        unavailable.value = 'auto';
+        unavailable.textContent = 'Unavailable';
+        select.replaceChildren(unavailable);
+        select.disabled = true;
+        control.title = 'Thinking levels could not be loaded. Reselect the model to retry.';
+        control.hidden = false;
+      }
+      return;
+    }
+  }
+  if (_thinkingRequestKey !== key || !levels.length) return;
+  select.replaceChildren();
+  select.disabled = false;
+  for (const value of ['auto', ...levels]) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = value === 'auto' ? 'Auto' : value[0].toUpperCase() + value.slice(1);
+    select.appendChild(option);
+  }
+  try {
+    const saved = localStorage.getItem(`odysseus-thinking-level:${modelId}`);
+    select.value = levels.includes(saved) ? saved : 'auto';
+  } catch { select.value = 'auto'; }
+  control.title = tools && levels.length === 1 && levels[0] === 'none'
+    ? 'This OpenAI Chat Completions route supports only None with agent tools.'
+    : `Thinking effort for ${modelId}`;
+  control.hidden = false;
+}
 
 function _modelExists(modelId, url) {
   if (!modelId || !window.modelsModule || !window.modelsModule.getCachedItems) return false;
@@ -192,6 +250,17 @@ async function _ensureDefaultPendingChat() {
 export function initModelPicker(deps) {
   _deps = deps;
   _initModelPickerDropdown();
+  const select = document.getElementById('thinking-level');
+  select?.addEventListener('change', () => {
+    const model = _deps.getSessions().find(s => s.id === _deps.getCurrentSessionId())?.model
+      || _deps.getPendingChat()?.modelId;
+    if (model) {
+      try { localStorage.setItem(`odysseus-thinking-level:${model}`, select.value); } catch {}
+    }
+  });
+  for (const id of ['mode-agent-btn', 'mode-chat-btn']) {
+    document.getElementById(id)?.addEventListener('click', () => setTimeout(updateModelPicker, 0));
+  }
 }
 
 function _initModelPickerDropdown() {
@@ -682,7 +751,7 @@ async function _pick(m) {
     }
     if (!currentSessionId && _pendingChat) {
       // Already have a deferred session — just update the model
-      _deps.setPendingChat({ url: m.url, modelId: m.mid, endpointId: m.endpointId, source: 'manual' });
+      _deps.setPendingChat({ ..._pendingChat, url: m.url, modelId: m.mid, endpointId: m.endpointId, source: _pendingChat.projectId ? 'project' : 'manual' });
       // Header stays as session name — model switch only updates picker
       updateModelPicker();
       uiModule.showToast(`Using ${m.display}`);
@@ -860,6 +929,9 @@ export function updateModelPicker() {
   const wrap = document.getElementById('model-picker-wrap');
   if (window.groupModule && window.groupModule.isActive()) {
     if (wrap) { wrap.style.display = 'none'; }
+    const thinkingControl = document.getElementById('thinking-level-control');
+    if (thinkingControl) thinkingControl.hidden = true;
+    _thinkingRequestKey = '';
     return;
   }
   // Reset inline visibility (may have been hidden by typing in previous session)
@@ -930,7 +1002,7 @@ export function updateModelPicker() {
       const fallback = items.find(item => !item.offline && (item.models || []).length > 0);
       if (fallback) {
         modelId = fallback.models[0];
-        _deps.setPendingChat({ url: fallback.url, modelId, endpointId: fallback.endpoint_id, source: 'fallback' });
+        _deps.setPendingChat({ ..._pendingChat, url: fallback.url, modelId, endpointId: fallback.endpoint_id, source: _pendingChat.projectId ? 'project' : 'fallback' });
       }
     }
   }
@@ -955,4 +1027,6 @@ export function updateModelPicker() {
   } else {
     label.textContent = displayName;
   }
+  const selected = s && s.model === modelId ? s : latestPending;
+  _updateThinkingLevel(modelId, selected?.endpoint_url || selected?.url || '');
 }

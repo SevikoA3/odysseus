@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from routes.chat_helpers import _project_file_fallbacks
-from src.chat_processor import ChatProcessor, PROJECT_FILE_CONTEXT_POLICY
+from src.chat_processor import ChatProcessor, PROJECT_FILE_CONTEXT_POLICY, NON_PROJECT_FILE_CONTEXT_POLICY
 from src.rag_vector import VectorRAG
 from tests.helpers.embedding_lanes import FakeChroma, FakeEmbedder, patch_chroma
 
@@ -139,6 +139,7 @@ def test_project_context_keeps_retrieved_files_untrusted():
         session=SimpleNamespace(),
         use_memory=False,
         project_id="project-a",
+        project_file_names=["fallback.txt"],
         project_file_fallbacks=[{
             "document": "fallback project file text",
             "metadata": {"filename": "fallback.txt", "upload_id": "upload-a"},
@@ -148,6 +149,17 @@ def test_project_context_keeps_retrieved_files_untrusted():
     assert fallback_sources[0]["filename"] == "fallback.txt"
     assert fallback_message["role"] == "user"
     assert fallback_message["metadata"]["trusted"] is False
+    file_list = next(message for message in fallback_preface if message.get("metadata", {}).get("source") == "project file list")
+    assert file_list["role"] == "user"
+    assert file_list["metadata"]["trusted"] is False
+    assert "fallback.txt" in file_list["content"]
+
+    outside_preface, _, _ = processor.build_context_preface(
+        message="where are project files", session=SimpleNamespace(),
+        use_memory=False, use_rag=False, project_files_elsewhere=True,
+    )
+    assert {"role": "system", "content": NON_PROJECT_FILE_CONTEXT_POLICY} in outside_preface
+    assert not any(message.get("metadata", {}).get("source") == "project file list" for message in outside_preface)
 
 
 def test_project_context_uses_fallback_after_rag_miss_without_requerying():

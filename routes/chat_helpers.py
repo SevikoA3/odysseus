@@ -784,29 +784,35 @@ async def build_chat_context(
     project_instructions = None
     project_context_id = None
     project_files = []
+    project_files_elsewhere = False
     project_id = getattr(sess, "project_id", None)
     project_owner = user or storage_owner_for_request(request)
-    if project_id and project_owner:
+    if project_owner:
         db = SessionLocal()
         try:
-            project = owner_filter(
-                db.query(Project).filter(Project.id == project_id),
-                Project,
-                project_owner,
-                include_shared=False,
-            ).first()
-            if project:
-                project_context_id = project.id
-                project_instructions = project.instructions
-                project_files = [
-                    {
-                        "upload_id": project_file.upload_id,
-                        "filename": project_file.filename,
-                    }
-                    for project_file in db.query(ProjectFile).filter(
-                        ProjectFile.project_id == project.id,
-                    ).order_by(ProjectFile.created_at.asc()).all()
-                ]
+            if project_id:
+                project = owner_filter(
+                    db.query(Project).filter(Project.id == project_id),
+                    Project,
+                    project_owner,
+                    include_shared=False,
+                ).first()
+                if project:
+                    project_context_id = project.id
+                    project_instructions = project.instructions
+                    project_files = [
+                        {
+                            "upload_id": project_file.upload_id,
+                            "filename": project_file.filename,
+                        }
+                        for project_file in db.query(ProjectFile).filter(
+                            ProjectFile.project_id == project.id,
+                        ).order_by(ProjectFile.created_at.asc()).all()
+                    ]
+            else:
+                project_files_elsewhere = db.query(ProjectFile.id).join(Project).filter(
+                    Project.owner == project_owner,
+                ).first() is not None
         except Exception:
             logger.warning("Failed to load project context for session %s", session_id, exc_info=True)
         finally:
@@ -906,6 +912,8 @@ async def build_chat_context(
         preset_system_prompt=preset.system_prompt,
         project_instructions=project_instructions,
         project_id=project_context_id,
+        project_file_names=[project_file["filename"] for project_file in project_files],
+        project_files_elsewhere=project_files_elsewhere,
         project_owner=project_owner if project_context_id else None,
         project_upload_ids={project_file["upload_id"] for project_file in project_files},
         project_rag_results=project_rag_results,

@@ -17,6 +17,7 @@ from core.models import ChatMessage
 from src.request_models import ChatRequest
 from src.llm_core import (
     _normalize_http_status,
+    thinking_levels_for,
     llm_call_async,
     llm_call_async_with_route_fallback,
     stream_llm,
@@ -765,6 +766,19 @@ def setup_chat_routes(
         dependencies=[Depends(require_chat_api_token_scope)],
     )
 
+    @router.get("/api/thinking-levels")
+    def thinking_levels(request: Request, url: str, model: str, tools: bool = False):
+        require_api_token_scope(request, "chat")
+        return {"levels": thinking_levels_for(url, model, tools=tools)}
+
+    def validate_thinking_level(level: str, url: str, model: str, *, tools: bool = False) -> str:
+        level = str(level or "auto").strip().lower()
+        if len(level) > 12:
+            raise HTTPException(400, "Invalid thinking level")
+        if level != "auto" and level not in thinking_levels_for(url, model, tools=tools):
+            raise HTTPException(400, f"Thinking level {level!r} is not supported by {model} on this route")
+        return level
+
     # ------------------------------------------------------------------ #
     # POST /api/chat (non-streaming)
     # ------------------------------------------------------------------ #
@@ -891,6 +905,7 @@ def setup_chat_routes(
                 owner=owner,
             )
         requested_model = sess.model
+        thinking_level = validate_thinking_level(chat_request.thinking_level, sess.endpoint_url, sess.model)
         reply, actual_candidate, actual_model = await llm_call_async_with_route_fallback(
             foreground_candidates,
             request_messages,
@@ -900,6 +915,7 @@ def setup_chat_routes(
             max_tokens=ctx.preset.max_tokens,
             prompt_type=preset_id,
             session_id=session,
+            thinking_level=thinking_level,
         )
         actual_index = _candidate_index(foreground_candidates, actual_candidate)
         apply_compaction_state(
@@ -1000,6 +1016,7 @@ def setup_chat_routes(
         incognito = str(form_data.get("incognito", "")).lower() == "true"
         plan_mode = str(form_data.get("plan_mode") or (body or {}).get("plan_mode") or "").lower() == "true"
         chat_mode = str(form_data.get("mode", "")).lower()  # 'chat' or 'agent'
+        thinking_level = str(form_data.get("thinking_level") or (body or {}).get("thinking_level") or "auto")
         tool_approval_id = (
             form_data.get("tool_approval_id")
             or (body or {}).get("tool_approval_id")
@@ -1308,6 +1325,9 @@ def setup_chat_routes(
         # Admins always have full privileges via get_privileges (returns
         # ADMIN_PRIVILEGES wholesale) so this is a no-op for them.
         _enforce_chat_privileges(request, sess)
+        thinking_level = validate_thinking_level(
+            thinking_level, sess.endpoint_url, sess.model, tools=(chat_mode != "chat")
+        )
 
         # Ensure session has auth headers
         resolve_session_auth(sess, session, owner=effective_user(request))
@@ -1984,6 +2004,7 @@ def setup_chat_routes(
                         prompt_type=preset_id,
                         tools=None,
                         session_id=session,
+                        thinking_level=thinking_level,
                         fallback_statuses=_foreground_policy.eligible_statuses,
                         fallback_on_empty=_foreground_policy.fallback_on_empty,
                         candidate_request_factory=_chat_request_factory,
@@ -2371,6 +2392,7 @@ def setup_chat_routes(
                         external_untrusted_context_seen=external_untrusted_context_seen,
                         delegated_credential=_delegated_credential,
                         exact_approval=exact_tool_approval,
+                        thinking_level=thinking_level,
                     ):
                         if chunk.startswith("data: ") and not chunk.startswith("data: [DONE]"):
                             try:

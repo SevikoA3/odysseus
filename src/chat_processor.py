@@ -15,7 +15,12 @@ logger = logging.getLogger(__name__)
 PROJECT_FILE_CONTEXT_POLICY = (
     "For project-specific facts, use supplied project-file context before asking "
     "the user for details. If it does not answer, state the missing detail; do not "
-    "claim the project has no files."
+    "claim the project has no files. Workspace tools do not read project uploads."
+)
+NON_PROJECT_FILE_CONTEXT_POLICY = (
+    "This chat is not in a project. The user has project files, but their contents "
+    "are unavailable in this chat or through workspace tools. If asked about those "
+    "files, explain that the chat must be moved into the relevant project."
 )
 
 
@@ -277,6 +282,8 @@ class ChatProcessor:
         preset_system_prompt: Optional[str] = None,
         project_instructions: Optional[str] = None,
         project_id: Optional[str] = None,
+        project_file_names: Optional[List[str]] = None,
+        project_files_elsewhere: bool = False,
         project_owner: Optional[str] = None,
         project_upload_ids: Optional[set[str]] = None,
         project_rag_results: Optional[List[Dict[str, Any]]] = None,
@@ -324,10 +331,23 @@ class ChatProcessor:
                 "role": "system",
                 "content": PROJECT_FILE_CONTEXT_POLICY,
             })
+        elif project_files_elsewhere:
+            preface.append({
+                "role": "system",
+                "content": NON_PROJECT_FILE_CONTEXT_POLICY,
+            })
         preface.append({
             "role": "system",
             "content": UNTRUSTED_CONTEXT_POLICY,
         })
+
+        if project_id and project_file_names:
+            names = [str(name).replace("\n", " ")[:120] for name in project_file_names[:25]]
+            more = len(project_file_names) - len(names)
+            listing = "Attached project files:\n" + "\n".join(f"- {name}" for name in names)
+            if more:
+                listing += f"\n- ... and {more} more"
+            preface.append(untrusted_context_message("project file list", listing))
 
         # Memory: core pinned facts + relevant pinned/extended recall.
         self._last_used_memories = []  # track what was injected

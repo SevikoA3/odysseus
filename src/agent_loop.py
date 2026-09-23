@@ -3000,6 +3000,7 @@ def _append_tool_results(
     round_num: int,
     round_reasoning: str = "",
     tool_result_records: Optional[list] = None,
+    anthropic_thinking_blocks: Optional[list] = None,
 ):
     """Append tool execution results back into the message history for the next LLM round.
 
@@ -3033,6 +3034,8 @@ def _append_tool_results(
         assistant_msg["content"] = round_response if round_response.strip() else None
         if round_reasoning:
             assistant_msg["reasoning_content"] = round_reasoning
+        if anthropic_thinking_blocks:
+            assistant_msg["anthropic_thinking_blocks"] = anthropic_thinking_blocks
         assistant_msg["tool_calls"] = [
             {
                 "id": tc.get("id", f"call_{round_num}_{j}"),
@@ -3449,6 +3452,7 @@ async def stream_agent_loop(
     _is_teacher_run: bool = False,
     history_session=None,
     defer_context_shaping: bool = False,
+    thinking_level: str = "auto",
 ) -> AsyncGenerator[str, None]:
     """Streaming agent loop generator.
 
@@ -3697,6 +3701,7 @@ async def stream_agent_loop(
                 timeout=int(get_setting("agent_stream_timeout_seconds", 300) or 300),
                 session_id=session_id,
                 workload=workload,
+                thinking_level=thinking_level,
                 fallback_statuses=fallback_statuses,
                 fallback_on_empty=fallback_on_empty,
                 candidate_request_factory=_direct_candidate_request,
@@ -4771,6 +4776,7 @@ async def stream_agent_loop(
     for round_num in range(1, max_rounds + 1):
         round_response = ""
         round_reasoning = ""  # reasoning_content deltas (DeepSeek-thinking, vLLM --reasoning-parser)
+        round_anthropic_thinking_blocks = []
         native_tool_calls = []  # populated if model uses function calling
 
         _active_route_state = {
@@ -4950,6 +4956,7 @@ async def stream_agent_loop(
             timeout=agent_stream_timeout,
             session_id=session_id,
             workload=workload,
+            thinking_level=thinking_level,
             fallback_statuses=fallback_statuses,
             fallback_on_empty=fallback_on_empty,
             candidate_request_factory=_candidate_request,
@@ -5060,6 +5067,7 @@ async def stream_agent_loop(
                         if _apply_candidate_compaction(candidate_index):
                             yield f'data: {json.dumps({"type": "compacted", "context_length": _last_route_context_length})}\n\n'
                         native_tool_calls = data.get("calls", [])
+                        round_anthropic_thinking_blocks = data.get("anthropic_thinking_blocks") or []
                         logger.info(f"Agent round {round_num}: received {len(native_tool_calls)} native tool call(s)")
                     elif data.get("type") == "usage":
                         u = data.get("data", {})
@@ -6288,7 +6296,8 @@ async def stream_agent_loop(
         _append_tool_results(messages, round_response, converted_calls,
                              tool_results, tool_result_texts, used_native, round_num,
                              round_reasoning=round_reasoning,
-                             tool_result_records=tool_result_records)
+                             tool_result_records=tool_result_records,
+                             anthropic_thinking_blocks=round_anthropic_thinking_blocks)
 
         # Emit agent_step event
         yield (

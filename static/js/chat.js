@@ -1843,6 +1843,10 @@ import { loadPanel } from './panels.js';
       if (selectedRouteForSend.model) fd.append('selected_model', selectedRouteForSend.model);
       if (selectedRouteForSend.endpoint_url) fd.append('selected_endpoint_url', selectedRouteForSend.endpoint_url);
       if (selectedRouteForSend.endpoint_id) fd.append('selected_endpoint_id', selectedRouteForSend.endpoint_id);
+      const thinkingLevel = document.getElementById('thinking-level');
+      if (thinkingLevel && !document.getElementById('thinking-level-control')?.hidden) {
+        fd.append('thinking_level', thinkingLevel.value);
+      }
       if (ids.length) fd.append('attachments', JSON.stringify(ids));
       // Auto-save & send active doc ID so the backend sees latest content
       if (documentModule && activeDocIdForSend && shouldSaveActiveDoc) {

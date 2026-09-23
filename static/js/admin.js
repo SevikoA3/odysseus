@@ -7,6 +7,7 @@ import { providerLogo, providerLogoFromUrl } from './providers.js';
 import { sortModelObjects } from './modelSort.js';
 import { PROVIDER_DEVICE_FLOWS, formatDeviceFlowError, runProviderDeviceFlow } from './providerDeviceFlow.js';
 import { getSettings, getTools, invalidateSettings, invalidateTools } from './appConfig.js';
+import { initNativeUpdate, refreshNativeUpdate } from './nativeUpdate.js';
 
 let initialized = false;
 let modalEl = null;
@@ -3157,6 +3158,7 @@ function initAll() {
   const inits = [
     initSignupToggle, initShareDefaultsToggle, initAddUser, initEndpointForm, initMcpForm,
     initCalDAV, initBackup, initDangerZone, initTokenForm, initLogsView,
+    () => initNativeUpdate(uiModule.styledConfirm),
     () => settingsModule.initIntegrations()
   ];
   for (const fn of inits) {
@@ -3173,6 +3175,7 @@ function refreshAll() {
   loadMcpServers();
   loadTokens();
   loadLogs(false);
+  refreshNativeUpdate();
 }
 
 /* ═══════════════════════════════════════════

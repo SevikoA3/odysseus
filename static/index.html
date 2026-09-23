@@ -1208,6 +1208,10 @@
           </button>
         </div>
         <div class="chat-input-right">
+          <label class="thinking-level-control" id="thinking-level-control" hidden>
+            <span>Thinking</span>
+            <select id="thinking-level" aria-label="Thinking level"><option value="auto">Auto</option></select>
+          </label>
           <!-- Agent / Chat mode toggle -->
           <div class="mode-toggle">
             <button type="button" class="mode-toggle-btn active" id="mode-agent-btn" aria-pressed="true">Agent</button>
@@ -2401,6 +2405,17 @@
 
         <!-- ═══ SYSTEM TAB ═══ -->
         <div data-settings-panel="system" class="hidden">
+
+          <div class="admin-card admin-only" id="settings-native-update-card" style="display:none">
+            <h2>Native Update</h2>
+            <div class="admin-toggle-sub">Update this native installation from its configured Git branch.</div>
+            <div class="settings-row" style="margin:12px 0">
+              <span class="settings-label">Current commit</span>
+              <code id="adm-nativeUpdateCommit">Loading…</code>
+            </div>
+            <div id="adm-nativeUpdateStatus" class="admin-toggle-sub" role="status" aria-live="polite">Loading update status…</div>
+            <button type="button" class="admin-btn-sm" id="adm-nativeUpdateBtn" disabled style="margin-top:12px;border-color:var(--fg)">Update &amp; restart</button>
+          </div>
 
           <div class="admin-card" id="settings-system-logs-card">
             <h2>

@@ -598,12 +598,17 @@ async def test_build_chat_context_uses_owner_scoped_project_instructions(monkeyp
             name="Alice project",
             instructions="Answer in bullet points.",
         ))
+        db.add(database.ProjectFile(
+            id="alice-file", project_id="alice-project", upload_id="alice-upload",
+            filename="story.md", mime_type="text/markdown", size=1,
+        ))
         db.commit()
     finally:
         db.close()
 
     owner = {"name": "alice"}
     captured = []
+    project_scope = []
 
     async def fake_preprocess(chat_handler, message, att_ids, sess, **kwargs):
         return PreprocessedMessage(
@@ -616,6 +621,7 @@ async def test_build_chat_context_uses_owner_scoped_project_instructions(monkeyp
 
     def fake_preface(**kwargs):
         captured.append(kwargs.get("project_instructions"))
+        project_scope.append((kwargs.get("project_file_names"), kwargs.get("project_files_elsewhere")))
         return [], [], []
 
     async def fake_compact(sess, endpoint_url, model, messages, headers, owner=None):
@@ -673,8 +679,17 @@ async def test_build_chat_context_uses_owner_scoped_project_instructions(monkeyp
         sess, SimpleNamespace(), SimpleNamespace(), processor,
         message="outside project", session_id="session-1", use_rag=False,
     )
+    owner["name"] = "alice"
+    await build_chat_context(
+        sess, SimpleNamespace(), SimpleNamespace(), processor,
+        message="where are my project files", session_id="session-1", use_rag=False,
+    )
 
-    assert captured == ["Answer in bullet points.", "Answer in bullet points.", None, None]
+    assert captured == ["Answer in bullet points.", "Answer in bullet points.", None, None, None]
+    assert project_scope == [
+        (["story.md"], False), (["story.md"], False),
+        ([], False), ([], False), ([], True),
+    ]
     assert all(message["content"] != "Answer in bullet points." for message in sess.messages)
 
 

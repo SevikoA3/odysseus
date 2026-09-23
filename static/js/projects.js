@@ -73,7 +73,7 @@ async function loadProjects() {
   try {
     projects = await request('/projects');
     renderSidebar();
-    syncSessionProject(sessionModule?.getSessions?.().find(session => session.id === sessionModule?.getCurrentSessionId?.())?.project_id);
+    syncSessionProject(sessionModule?.getPendingChat?.()?.projectId || sessionModule?.getSessions?.().find(session => session.id === sessionModule?.getCurrentSessionId?.())?.project_id);
     return projects;
   } catch (error) {
     renderSidebar('Unable to load projects');
@@ -167,7 +167,7 @@ function renderDetail(data) {
       projects = projects.map(item => item.id === updated.id ? updated : item);
       delete instructionsDrafts[project.id];
       renderSidebar();
-      syncSessionProject(sessionModule?.getSessions?.().find(session => session.id === sessionModule?.getCurrentSessionId?.())?.project_id);
+      syncSessionProject(sessionModule?.getPendingChat?.()?.projectId || sessionModule?.getSessions?.().find(session => session.id === sessionModule?.getCurrentSessionId?.())?.project_id);
       uiModule.showToast('Project saved');
       await openProject(project.id);
     } catch (error) {
@@ -369,16 +369,30 @@ function syncSessionProject(projectId) {
   if (!label) {
     const current = document.getElementById('current-meta');
     if (!current) return;
-    label = document.createElement('span');
+    label = document.createElement('button');
     label.id = 'current-project-name';
     label.className = 'current-project-name';
+    label.type = 'button';
+    label.addEventListener('click', async () => {
+      const session = sessionModule?.getSessions?.().find(item => item.id === sessionModule?.getCurrentSessionId?.());
+      if (!session) return;
+      if (session.project_id) openProject(session.project_id);
+      else {
+        if (!projects.length) await loadProjects();
+        openProjectPicker(session);
+      }
+    });
     current.after(label);
   }
-  if (!label) return;
   const name = projectName(projectId);
-  label.textContent = name ? ` · ${name}` : '';
-  label.hidden = !name;
-  label.title = name ? `Project: ${name}` : '';
+  label.textContent = projectId ? ` · ${name || 'Project'}` : ' · No project';
+  label.title = projectId ? `Open project: ${name || 'Project'}` : (
+    sessionModule?.getCurrentSessionId?.()
+      ? 'Move this chat to a project to use its files'
+      : 'Start a chat inside a project to use its files'
+  );
+  label.setAttribute('aria-label', label.title);
+  label.disabled = !sessionModule?.getSessions?.().some(session => session.id === sessionModule?.getCurrentSessionId?.());
 }
 
 async function moveSession(session, projectId) {

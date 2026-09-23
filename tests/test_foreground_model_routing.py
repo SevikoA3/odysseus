@@ -96,13 +96,15 @@ def _chat_stream_endpoint(
     capture_completion=False,
     capture_context=False,
     endpoint_url="https://selected.example/v1",
+    model="selected-model",
+    capture_thinking=False,
 ):
     def add_message(message):
         captured.setdefault("added_messages", []).append(message)
 
     session = SimpleNamespace(
         endpoint_url=endpoint_url,
-        model="selected-model",
+        model=model,
         headers={"Authorization": "Bearer selected"},
         name="test",
         history=[],
@@ -144,6 +146,8 @@ def _chat_stream_endpoint(
 
     async def fake_chat_stream(candidates, messages, **kwargs):
         captured["chat"] = candidates
+        if capture_thinking:
+            captured["thinking_level"] = kwargs.get("thinking_level")
         if chat_chunks is not None:
             for chunk in chat_chunks:
                 if isinstance(chunk, BaseException):
@@ -154,6 +158,8 @@ def _chat_stream_endpoint(
         yield "data: [DONE]\n\n"
 
     async def fake_agent_stream(endpoint_url, model, messages, **kwargs):
+        if capture_thinking:
+            captured["thinking_level"] = kwargs.get("thinking_level")
         captured["agent"] = {
             "primary": (endpoint_url, model, kwargs.get("headers")),
             "fallbacks": kwargs.get("fallbacks"),
@@ -240,6 +246,37 @@ def _chat_stream_endpoint(
         SimpleNamespace(),
     )
     return next(route.endpoint for route in router.routes if route.path == "/api/chat_stream")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode,level", [("chat", "high"), ("agent", "none")])
+async def test_chat_stream_forwards_accepted_thinking_level(monkeypatch, mode, level):
+    captured = {}
+    endpoint = _chat_stream_endpoint(
+        monkeypatch, mode, captured,
+        endpoint_url="https://api.openai.com/v1/chat/completions",
+        model="gpt-5.6-sol", capture_thinking=True,
+    )
+    request = _RouteRequest(mode)
+    request._form["thinking_level"] = level
+    response = await endpoint(request)
+    async for _ in response.body_iterator:
+        pass
+    assert captured["thinking_level"] == level
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_rejects_openai_agent_high_thinking(monkeypatch):
+    endpoint = _chat_stream_endpoint(
+        monkeypatch, "agent", {},
+        endpoint_url="https://api.openai.com/v1/chat/completions",
+        model="gpt-5.6-sol",
+    )
+    request = _RouteRequest("agent")
+    request._form["thinking_level"] = "high"
+    with pytest.raises(Exception) as error:
+        await endpoint(request)
+    assert getattr(error.value, "status_code", None) == 400
 
 
 @pytest.mark.asyncio

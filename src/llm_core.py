@@ -194,7 +194,8 @@ def _cache_header_identity(headers) -> str:
 
 
 def _get_cache_key(url: str, model: str, messages: List[Dict],
-                   temperature: float, max_tokens: int, headers=None) -> str:
+                   temperature: float, max_tokens: int, headers=None,
+                   thinking_level: str = "auto") -> str:
     """Generate a cache key partitioned by endpoint and credential identity."""
     hashable_messages = []
     for msg in messages:
@@ -207,6 +208,7 @@ def _get_cache_key(url: str, model: str, messages: List[Dict],
         'messages': hashable_messages,
         'temp': temperature,
         'max_tokens': max_tokens,
+        'thinking_level': thinking_level,
         # Never put credentials in a cache key or loggable cache payload.  The
         # digest only prevents responses from one configured account/route
         # being returned under another route with the same URL and model.
@@ -1169,9 +1171,11 @@ def _is_openai_hosted_chat_url(url: str) -> bool:
 
 
 def _model_disallows_reasoning_effort_with_chat_tools(model: str) -> bool:
-    """OpenAI GPT 5.x variants reject reasoning_effort + tools on chat completions."""
+    """Models whose Chat Completions tool calls require reasoning_effort=none."""
     m = (model or "").strip().lower()
-    return bool(re.match(r"^(?:openai/)?gpt-5(?:[.\-]\d+)?(?:[-_:].*)?$", m))
+    return bool(re.match(r"^(?:openai/)?gpt-5(?:[.\-]\d+)?(?:[-_:].*)?$", m)) or bool(
+        re.match(r"^(?:openai/)?gpt-6-(?:sol|luna)(?:$|[-_:])", m)
+    )
 
 
 # gpt-oss (harmony) ships BUILT-IN tools named `python` and `browser`, invoked
@@ -1235,6 +1239,75 @@ def _scrub_openai_chat_tool_reasoning(payload: Dict, target_url: str, model: str
     payload["reasoning_effort"] = "none"
 
 
+def thinking_levels_for(url: str, model: str, *, tools: bool = False) -> tuple[str, ...]:
+    """Levels accepted by this serving route; empty means leave its defaults alone."""
+    provider = _detect_provider(url)
+    mid = (model or "").lower().rsplit("/", 1)[-1]
+    if provider == "anthropic" or (provider == "openrouter" and model.lower().startswith("anthropic/")):
+        if mid == "claude-mythos-preview":
+            return ("low", "medium", "high", "max")
+        match = re.match(r"^claude-(opus|sonnet|fable|mythos)-(\d{1,2})(?:[-.](\d{1,2})(?!\d))?", mid)
+        if not match:
+            return ()
+        family, major, minor = match.group(1), int(match.group(2)), int(match.group(3) or 0)
+        version = (major, minor)
+        if not (
+            (version == (4, 6) and family in {"opus", "sonnet"})
+            or (version in {(4, 7), (4, 8)} and family == "opus")
+            or (major == 5 and minor <= 1)
+        ):
+            return ()
+        return ("low", "medium", "high", "xhigh", "max") if version >= (4, 7) else ("low", "medium", "high", "max")
+    if provider == "mistral" and mid in {"mistral-small-latest", "mistral-medium-3-5"}:
+        return ("none", "low", "medium", "high")
+    if provider not in {"openai", "chatgpt-subscription", "openrouter"}:
+        return ()
+    if provider == "openai" and not _host_match(url, "openai.com"):
+        return ()
+    if provider == "openrouter" and not model.lower().startswith("openai/"):
+        return ()
+    def is_family(name: str) -> bool:
+        return mid == name or mid.startswith(name + "-")
+
+    if is_family("gpt-6-astra"):
+        levels = ("low", "medium", "high", "xhigh", "max")
+    elif any(is_family(name) for name in ("gpt-6-sol", "gpt-6-luna", "gpt-5.6")):
+        levels = ("none", "low", "medium", "high", "xhigh", "max")
+    elif any(is_family(name) for name in ("gpt-5.5", "gpt-5.4", "gpt-5.2")):
+        levels = ("none", "low", "medium", "high", "xhigh")
+    elif is_family("gpt-5.3-codex"):
+        levels = ("low", "medium", "high", "xhigh")
+    elif is_family("gpt-5.1"):
+        levels = ("none", "low", "medium", "high")
+    elif is_family("gpt-5"):
+        levels = ("minimal", "low", "medium", "high")
+    else:
+        return ()
+    if "-pro" in mid:
+        return ()  # Pro models require the Responses API, not native Chat Completions.
+    if tools and provider == "openai" and _model_disallows_reasoning_effort_with_chat_tools(model):
+        return ("none",)
+    if tools and provider == "openai" and is_family("gpt-6-astra"):
+        return ()
+    return levels
+
+
+def apply_thinking_level(payload: Dict, url: str, model: str, level: str, *, tools: bool = False) -> None:
+    if level == "auto" or level not in thinking_levels_for(url, model, tools=tools):
+        return
+    provider = _detect_provider(url)
+    if provider == "anthropic":
+        payload["thinking"] = {"type": "adaptive"}
+        payload["output_config"] = {"effort": level}
+        payload.pop("temperature", None)
+    elif provider in {"chatgpt-subscription", "openrouter"}:
+        payload["reasoning"] = {"effort": level}
+        if provider == "openrouter" and model.lower().startswith("anthropic/"):
+            payload.pop("temperature", None)
+    else:
+        payload["reasoning_effort"] = level
+
+
 def _normalize_chatgpt_subscription_url(url: str) -> str:
     base = (url or "").strip().rstrip("/")
     if base.endswith("/responses"):
@@ -1280,6 +1353,7 @@ def _build_chatgpt_responses_payload(
     max_tokens: int,
     *,
     stream: bool = False,
+    thinking_level: str = "auto",
 ) -> Dict:
     from src.chatgpt_subscription import build_responses_input
 
@@ -1296,6 +1370,7 @@ def _build_chatgpt_responses_payload(
     # ChatGPT Subscription Codex API does not support max_output_tokens —
     # passing it returns HTTP 400 "Unsupported parameter: max_output_tokens".
     # Do not include it in the payload.
+    apply_thinking_level(payload, "https://chatgpt.com/backend-api/codex", model, thinking_level)
     return payload
 
 
@@ -1524,7 +1599,7 @@ def _convert_openai_content_to_anthropic(content):
     return converted
 
 
-def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=False, tools=None):
+def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=False, tools=None, thinking_level="auto"):
     """Convert OpenAI-style messages to Anthropic format."""
     system_parts = []
     chat_messages = []
@@ -1543,7 +1618,7 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
             })
         elif m.get("role") == "assistant" and isinstance(m.get("tool_calls"), list):
             # Convert OpenAI assistant tool_calls to Anthropic format
-            content = []
+            content = list(m.get("anthropic_thinking_blocks") or [])
             if m.get("content"):
                 content.append({"type": "text", "text": m["content"]})
             for tc in m["tool_calls"]:
@@ -1609,6 +1684,7 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
             # The breakpoint caches all tool defs preceding it in the request.
             anthropic_tools[-1]["cache_control"] = {"type": "ephemeral"}
             payload["tools"] = anthropic_tools
+    apply_thinking_level(payload, "https://api.anthropic.com", model, thinking_level, tools=bool(tools))
     return payload
 
 def _build_anthropic_headers(headers):
@@ -1670,7 +1746,7 @@ def _is_untrusted_context_content(content) -> bool:
 _REFERENCE_CONTEXT_BOUNDARY = "Reference context received."
 
 
-def _sanitize_llm_messages(messages: List[Dict]) -> List[Dict]:
+def _sanitize_llm_messages(messages: List[Dict], *, anthropic: bool = False) -> List[Dict]:
     """Strip Odysseus-only metadata before sending messages to providers.
 
     Per the OpenAI chat format: user/system messages must have content; a tool
@@ -1682,6 +1758,8 @@ def _sanitize_llm_messages(messages: List[Dict]) -> List[Dict]:
     it leaves the tool result dangling and breaks the next round.
     """
     allowed = {"role", "content", "name", "tool_call_id", "tool_calls", "function_call", "reasoning_content"}
+    if anthropic:
+        allowed.add("anthropic_thinking_blocks")
     cleaned = []
     for msg in messages or []:
         if not isinstance(msg, dict):
@@ -1982,7 +2060,7 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
     if isinstance(headers, dict):
         h.update(headers)
 
-    messages_copy = _sanitize_llm_messages(messages)
+    messages_copy = _sanitize_llm_messages(messages, anthropic=_detect_provider(url) == "anthropic")
 
     # Consolidate multiple system messages into one at the start.
     sys_parts = []
@@ -2273,10 +2351,11 @@ async def llm_call_async(
     workload: str = "foreground",
     availability_only_transport: bool = False,
     return_model_metadata: bool = False,
+    thinking_level: str = "auto",
 ) -> str | tuple[str, str]:
     """Asynchronous LLM call using httpx with connection pooling, timeout, retry logic, and performance logging."""
     provider = _detect_provider(url)
-    messages_copy = _sanitize_llm_messages(messages)
+    messages_copy = _sanitize_llm_messages(messages, anthropic=provider == "anthropic")
 
     # Consolidate multiple system messages into one at the start.
     sys_parts = []
@@ -2293,6 +2372,7 @@ async def llm_call_async(
 
     cache_key = _get_cache_key(
         url, model, messages_copy, temperature, max_tokens, headers=headers,
+        thinking_level=thinking_level,
     )
     cached_response = _get_cached_response(cache_key)
     if cached_response:
@@ -2316,6 +2396,7 @@ async def llm_call_async(
             headers=headers,
             timeout=timeout,
             workload=workload,
+            thinking_level=thinking_level,
         ):
             event_is_error = False
             for line in str(chunk).splitlines():
@@ -2366,7 +2447,7 @@ async def llm_call_async(
     if provider == "anthropic":
         target_url = _normalize_anthropic_url(url)
         h = _build_anthropic_headers(headers)
-        payload = _build_anthropic_payload(model, messages_copy, temperature, max_tokens)
+        payload = _build_anthropic_payload(model, messages_copy, temperature, max_tokens, thinking_level=thinking_level)
     elif provider == "ollama":
         target_url = _normalize_ollama_url(url)
         h = {"Content-Type": "application/json"}
@@ -2397,6 +2478,7 @@ async def llm_call_async(
             payload["think"] = False
         if provider == "mistral" and _supports_thinking(model):
             payload["reasoning_effort"] = _MISTRAL_REASONING_EFFORT
+        apply_thinking_level(payload, url, model, thinking_level)
         _apply_local_cache_affinity(payload, url, session_id)
         _apply_local_generation_stability(payload, target_url, model)
 
@@ -2560,7 +2642,8 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                      max_tokens: int = LLMConfig.DEFAULT_MAX_TOKENS, headers: Optional[Dict] = None,
                      timeout: int = LLMConfig.STREAM_TIMEOUT, prompt_type: Optional[str] = None,
                      tools: Optional[List[Dict]] = None, session_id: Optional[str] = None,
-                     tool_choice_none: bool = False, workload: str = "foreground"):
+                     tool_choice_none: bool = False, workload: str = "foreground",
+                     thinking_level: str = "auto"):
     target_url = _stream_target_url(url)
     async with _local_model_slot(target_url, model, workload):
         async for chunk in _stream_llm_inner(
@@ -2575,6 +2658,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             tools=tools,
             session_id=session_id,
             tool_choice_none=tool_choice_none,
+            thinking_level=thinking_level,
         ):
             yield chunk
 
@@ -2583,7 +2667,7 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                             max_tokens: int = LLMConfig.DEFAULT_MAX_TOKENS, headers: Optional[Dict] = None,
                             timeout: int = LLMConfig.STREAM_TIMEOUT, prompt_type: Optional[str] = None,
                             tools: Optional[List[Dict]] = None, session_id: Optional[str] = None,
-                            tool_choice_none: bool = False):
+                            tool_choice_none: bool = False, thinking_level: str = "auto"):
     """Stream LLM responses with improved error handling.
 
     Yields SSE chunks:
@@ -2593,7 +2677,7 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
       - data: [DONE]                       — end of stream
     """
     provider = _detect_provider(url)
-    messages_copy = _sanitize_llm_messages(messages)
+    messages_copy = _sanitize_llm_messages(messages, anthropic=provider == "anthropic")
 
     # Consolidate multiple system messages into one at the start.
     # Some models (e.g. Qwen3.5) reject system messages that aren't first.
@@ -2612,7 +2696,7 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
     if provider == "anthropic":
         target_url = _normalize_anthropic_url(url)
         h = _build_anthropic_headers(headers)
-        payload = _build_anthropic_payload(model, messages_copy, temperature, max_tokens, stream=True, tools=tools)
+        payload = _build_anthropic_payload(model, messages_copy, temperature, max_tokens, stream=True, tools=tools, thinking_level=thinking_level)
     elif provider == "ollama":
         target_url = _normalize_ollama_url(url)
         h = {"Content-Type": "application/json"}
@@ -2625,7 +2709,7 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
     elif provider == "chatgpt-subscription":
         target_url = _normalize_chatgpt_subscription_url(url)
         h = _provider_headers(provider, headers)
-        payload = _build_chatgpt_responses_payload(model, messages_copy, temperature, max_tokens, stream=True)
+        payload = _build_chatgpt_responses_payload(model, messages_copy, temperature, max_tokens, stream=True, thinking_level=thinking_level)
     else:
         target_url = _normalize_openai_chat_url(url)
         payload = {
@@ -2658,6 +2742,7 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
             payload["think"] = False
         _apply_local_cache_affinity(payload, url, session_id)
         _apply_local_generation_stability(payload, target_url, model)
+        apply_thinking_level(payload, url, model, thinking_level, tools=bool(tools))
         _scrub_openai_chat_tool_reasoning(payload, target_url, model)
         h = _provider_headers(provider, headers)
         if provider == "copilot":
@@ -2902,6 +2987,7 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
         _anth_model_announced = False
         # Track tool_use blocks: {index: {id, name, arguments_json}}
         _anth_tool_blocks: Dict[int, Dict] = {}
+        _anth_thinking_blocks: Dict[int, Dict] = {}
         _anth_block_idx = -1
         _anth_block_type = ""
         try:
@@ -2936,6 +3022,8 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                     "name": cb.get("name") or "",
                                     "arguments": "",
                                 }
+                            elif _anth_block_type in {"thinking", "redacted_thinking"}:
+                                _anth_thinking_blocks[_anth_block_idx] = dict(cb)
                         elif evt == "content_block_delta":
                             delta = j.get("delta") or {}
                             delta_type = delta.get("type", "")
@@ -2943,6 +3031,17 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                 text = delta.get("text") or ""
                                 if text:
                                     yield f'data: {json.dumps({"delta": text})}\n\n'
+                            elif delta_type == "thinking_delta":
+                                idx = j.get("index", _anth_block_idx)
+                                thought = delta.get("thinking") or ""
+                                if idx in _anth_thinking_blocks:
+                                    _anth_thinking_blocks[idx]["thinking"] = _anth_thinking_blocks[idx].get("thinking", "") + thought
+                                if thought:
+                                    yield _stream_delta_event(thought, thinking=True)
+                            elif delta_type == "signature_delta":
+                                idx = j.get("index", _anth_block_idx)
+                                if idx in _anth_thinking_blocks:
+                                    _anth_thinking_blocks[idx]["signature"] = delta.get("signature") or ""
                             elif delta_type == "input_json_delta":
                                 # Accumulate tool arguments JSON
                                 idx = j.get("index", _anth_block_idx)
@@ -3003,7 +3102,12 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                         "name": tb["name"],
                                         "arguments": tb["arguments"],
                                     })
-                                yield f'data: {json.dumps({"type": "tool_calls", "calls": calls})}\n\n'
+                                event = {"type": "tool_calls", "calls": calls}
+                                if _anth_thinking_blocks:
+                                    event["anthropic_thinking_blocks"] = [
+                                        _anth_thinking_blocks[idx] for idx in sorted(_anth_thinking_blocks)
+                                    ]
+                                yield f'data: {json.dumps(event)}\n\n'
                             normalized_usage = _normalize_usage_counts(
                                 _anth_input_tokens,
                                 _anth_output_tokens,
