@@ -1,6 +1,6 @@
 # Odysseus Projects and Native Updater Implementation Plan
 
-Status: in progress
+Status: complete (manual browser and VM checks pending)
 
 Target deployment: native Python, project venv, systemd user services
 
@@ -23,33 +23,33 @@ Target branch for VM updates: `main`
 
 ## Fixed Product Decisions
 
-- [ ] Projects are private and owner-scoped.
-- [ ] A project contains a name, instructions, files, and chats.
-- [ ] Existing chats can move into or out of a project.
-- [ ] Deleting a project detaches its chats instead of deleting them.
-- [ ] Removing a project file removes its project reference and RAG chunks. Upload cleanup removes unreferenced bytes later.
-- [ ] Project instructions apply to every chat in that project.
-- [ ] Project files enter model context as untrusted content.
-- [ ] Project file retrieval must filter by both owner and project ID.
-- [ ] Chats outside a project must never retrieve project-scoped chunks.
-- [ ] Cross-chat transcript memory is not part of MVP.
-- [ ] Project sharing, icons, colors, connectors, and per-project default models are not part of MVP.
-- [ ] Native self-update is disabled unless `ODYSSEUS_SELF_UPDATE=true`.
-- [ ] Browser requests cannot supply a command, repository path, remote, or branch.
+- [x] Projects are private and owner-scoped.
+- [x] A project contains a name, instructions, files, and chats.
+- [x] Existing chats can move into or out of a project.
+- [x] Deleting a project detaches its chats instead of deleting them.
+- [x] Removing a project file removes its project reference and RAG chunks. Upload cleanup removes unreferenced bytes later.
+- [x] Project instructions apply to every chat in that project.
+- [x] Project files enter model context as untrusted content.
+- [x] Project file retrieval must filter by both owner and project ID.
+- [x] Chats outside a project must never retrieve project-scoped chunks.
+- [x] Cross-chat transcript memory is not part of MVP.
+- [x] Project sharing, icons, colors, connectors, and per-project default models are not part of MVP.
+- [x] Native self-update is disabled unless `ODYSSEUS_SELF_UPDATE=true`.
+- [x] Browser requests cannot supply a command, repository path, remote, or branch.
 
 ## Definition of Done
 
-- [ ] User can create, rename, edit, and delete a project.
-- [ ] User can create a chat inside a project.
-- [ ] User can move an existing chat into or out of a project.
-- [ ] Project instructions affect every project chat and no other chat.
-- [ ] Project files are available across chats in the same project.
-- [ ] Retrieval cannot cross owner or project boundaries.
-- [ ] Upload cleanup preserves files referenced by a project.
-- [ ] Existing non-project chats keep current behavior.
-- [ ] Admin can trigger a safe native update from Settings when explicitly enabled.
-- [ ] Dirty worktrees and non-fast-forward updates are rejected.
-- [ ] Focused backend, security, JavaScript, shell, and systemd checks pass.
+- [x] User can create, rename, edit, and delete a project.
+- [x] User can create a chat inside a project.
+- [x] User can move an existing chat into or out of a project.
+- [x] Project instructions affect every project chat and no other chat.
+- [x] Project files are available across chats in the same project.
+- [x] Retrieval cannot cross owner or project boundaries.
+- [x] Upload cleanup preserves files referenced by a project.
+- [x] Existing non-project chats keep current behavior.
+- [x] Admin can trigger a safe native update from Settings when explicitly enabled.
+- [x] Dirty worktrees and non-fast-forward updates are rejected.
+- [x] Focused backend, security, JavaScript, shell, and systemd checks pass.
 
 ## Phase 0: Baseline and Flow Confirmation
 
