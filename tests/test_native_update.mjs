@@ -8,7 +8,7 @@ assert.match(
 );
 
 const elements = Object.fromEntries(
-  ['adm-nativeUpdateBtn', 'adm-nativeUpdateStatus', 'adm-nativeUpdateCommit', 'settings-modal']
+  ['adm-nativeUpdateBtn', 'adm-nativeUpdateStatus', 'adm-nativeUpdateCommit', 'adm-nativeUpdateRunningCommit', 'settings-modal']
     .map(id => [id, {
       textContent: id === 'adm-nativeUpdateCommit' ? 'Loading…' : '',
       dataset: {}, disabled: true, className: '',
@@ -49,10 +49,11 @@ await refreshNativeUpdate();
 assert.match(message.textContent, /Self-update is off/);
 assert.equal(button.disabled, true);
 
-responses.push({ body: { state: 'running', active: true, current_commit: 'a'.repeat(40) } });
+responses.push({ body: { state: 'running', active: true, current_commit: 'a'.repeat(40), running_commit: 'c'.repeat(40) } });
 await refreshNativeUpdate();
 assert.equal(button.disabled, true);
 assert.equal(elements['adm-nativeUpdateCommit'].textContent, 'a'.repeat(12));
+assert.equal(elements['adm-nativeUpdateRunningCommit'].textContent, 'c'.repeat(12));
 assert.ok(poll);
 
 responses.push({ body: { state: 'up_to_date', active: false, current_commit: 'a'.repeat(40) } });

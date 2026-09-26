@@ -2417,8 +2417,12 @@
             <h2>Native Update</h2>
             <div class="admin-toggle-sub">Update this native installation from its configured Git branch.</div>
             <div class="settings-row" style="margin:12px 0">
-              <span class="settings-label">Current commit</span>
+              <span class="settings-label">Disk commit</span>
               <code id="adm-nativeUpdateCommit">Loading…</code>
+            </div>
+            <div class="settings-row" style="margin:12px 0">
+              <span class="settings-label">Running commit</span>
+              <code id="adm-nativeUpdateRunningCommit">Loading…</code>
             </div>
             <div id="adm-nativeUpdateStatus" class="admin-toggle-sub" role="status" aria-live="polite">Loading update status…</div>
             <button type="button" class="admin-btn-sm" id="adm-nativeUpdateBtn" disabled style="margin-top:12px;border-color:var(--fg)">Update &amp; restart</button>

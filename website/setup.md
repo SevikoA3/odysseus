@@ -88,19 +88,18 @@ in front of `http://127.0.0.1:7000`; keep the app bound to loopback. Configure
 the proxy to forward the original HTTPS scheme for secure session cookies.
 
 Admins can run **Settings > System > Native Update** after opting in. The
-updater requires a clean worktree and a fast-forward update from `origin/main`
-(or `ODYSSEUS_UPDATE_REMOTE` and `ODYSSEUS_UPDATE_BRANCH` set in `.env`). It
-backs up data before merging, installs requirements in the existing venv, then
-restarts the service. Local or untracked changes block the update. Resolve
-them deliberately before retrying; do not discard them to force an update.
+updater fetches `origin/main` (or `ODYSSEUS_UPDATE_REMOTE` and
+`ODYSSEUS_UPDATE_BRANCH` set in `.env`), backs up data, force-resets the checkout
+to that remote commit, installs requirements in the existing venv, then
+restarts the service. Tracked changes and untracked files are deleted. Ignored
+paths such as `.env`, `data/`, `venv/`, and `logs/` are preserved.
 
 If an update fails, log in as the service user and inspect
 `data/update-status.json` and `journalctl --user -u odysseus-update.service -n 100`.
-The updater does not roll back code automatically. After resolving the reported
-problem, run `venv/bin/python -m pip install -r requirements.txt`,
-`./install-service.sh --no-start`, and
-`systemctl --user restart odysseus-ui.service`. If code must be rolled back,
-restore a known commit and the backup made before the update, then restart.
+If dependency installation, service setup, or restart fails after checkout, the
+updater resets to the previous commit, restores its requirements and unit files,
+then restarts that version. Inspect the status file and journal if automatic
+rollback is reported incomplete.
 
 ### Apple Silicon
 Docker on macOS cannot use the Metal GPU. For GPU-accelerated Cookbook on an

@@ -28,6 +28,19 @@ fail() {
     echo "update: $1" >&2
     exit 1
 }
+recover() {
+    reason=$1
+    recovered=true
+    git reset --hard "$old_commit" >/dev/null 2>&1 || recovered=false
+    git clean -fd >/dev/null 2>&1 || recovered=false
+    "$venv_python" -m pip install --quiet -r "$repo_dir/requirements.txt" >/dev/null 2>&1 || recovered=false
+    /bin/bash "$repo_dir/install-service.sh" --no-start >/dev/null 2>&1 || recovered=false
+    systemctl --user restart odysseus-ui.service >/dev/null 2>&1 || recovered=false
+    if [ "$recovered" = true ]; then
+        fail "$reason; rolled back to previous commit"
+    fi
+    fail "$reason; automatic rollback incomplete"
+}
 
 write_status running 'Checking for updates'
 [ "${ODYSSEUS_SELF_UPDATE:-}" = true ] || fail 'Self-update is disabled'
@@ -42,21 +55,22 @@ git remote get-url "$remote" >/dev/null 2>&1 || fail 'Update remote is unavailab
 [ "$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" = "$branch" ] || fail 'Current branch differs from configured branch'
 old_commit=$(git rev-parse HEAD 2>/dev/null) || fail 'Current commit is unavailable'
 changes=$(git status --porcelain --untracked-files=all 2>/dev/null) || fail 'Cannot check worktree'
-[ -z "$changes" ] || fail 'Dirty worktree rejected'
 [ -x "$venv_python" ] || fail 'Project virtual environment is unavailable'
 
 git fetch --quiet --no-tags "$remote" "refs/heads/$branch" >/dev/null 2>&1 || fail 'Update fetch failed'
 target_commit=$(git rev-parse --verify 'FETCH_HEAD^{commit}' 2>/dev/null) || fail 'Fetched commit is unavailable'
-git merge-base --is-ancestor "$old_commit" "$target_commit" || fail 'Non-fast-forward update rejected'
-if [ "$old_commit" = "$target_commit" ]; then
-    write_status up_to_date 'Already at target commit'
+if [ "$old_commit" = "$target_commit" ] && [ -z "$changes" ]; then
+    systemctl --user restart odysseus-ui.service >/dev/null 2>&1 || fail 'Service restart failed'
+    write_status success 'Already at target commit; service restarted'
     exit 0
 fi
 
 [ -x "$backup" ] || fail 'Backup command is unavailable'
 "$backup" snapshot >/dev/null 2>&1 || fail 'Backup failed'
-git merge --ff-only "$target_commit" >/dev/null 2>&1 || fail 'Fast-forward merge failed'
-"$venv_python" -m pip install --quiet -r "$repo_dir/requirements.txt" >/dev/null 2>&1 || fail 'Dependency install failed'
-/bin/bash "$repo_dir/install-service.sh" --no-start >/dev/null 2>&1 || fail 'Service setup failed'
-systemctl --user restart odysseus-ui.service >/dev/null 2>&1 || fail 'Service restart failed'
+git reset --hard "$target_commit" >/dev/null 2>&1 || fail 'Forced checkout failed'
+git clean -fd >/dev/null 2>&1 || fail 'Untracked file cleanup failed'
+[ "$(git rev-parse HEAD 2>/dev/null)" = "$target_commit" ] || fail 'Target commit verification failed'
+"$venv_python" -m pip install --quiet -r "$repo_dir/requirements.txt" >/dev/null 2>&1 || recover 'Dependency install failed'
+/bin/bash "$repo_dir/install-service.sh" --no-start >/dev/null 2>&1 || recover 'Service setup failed'
+systemctl --user restart odysseus-ui.service >/dev/null 2>&1 || recover 'Service restart failed'
 write_status success 'Update completed'

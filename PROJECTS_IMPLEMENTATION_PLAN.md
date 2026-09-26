@@ -48,7 +48,7 @@ Target branch for VM updates: `main`
 - [x] Upload cleanup preserves files referenced by a project.
 - [x] Existing non-project chats keep current behavior.
 - [x] Admin can trigger a safe native update from Settings when explicitly enabled.
-- [x] Dirty worktrees and non-fast-forward updates are rejected.
+- [x] Native updates force-reset tracked and untracked checkout changes to the configured remote branch.
 - [x] Focused backend, security, JavaScript, shell, and systemd checks pass.
 
 ## Phase 0: Baseline and Flow Confirmation
@@ -365,10 +365,10 @@ Target branch for VM updates: `main`
 - [x] Require the configured branch, default `main`.
 - [x] Reject any dirty tracked or untracked worktree state.
 - [x] Fetch only the configured remote and branch.
-- [x] Reject non-fast-forward history.
+- [x] Replace diverged local history with the configured remote commit.
 - [x] Record the old and target commit hashes.
 - [x] Run the existing local backup command before merging.
-- [x] Update code with fast-forward-only semantics.
+- [x] Update code with fetch plus verified hard-reset semantics.
 - [x] Install requirements into the existing project venv.
 - [x] Run existing idempotent setup required by native installs.
 - [x] Restart Odysseus only after all preparation succeeds.
@@ -391,7 +391,7 @@ Target branch for VM updates: `main`
 ### Failure behavior
 
 - [x] A fetch failure leaves the running process untouched.
-- [x] A dirty worktree leaves the running process untouched.
+- [x] A dirty worktree is backed up, reset, cleaned, and restarted at the remote commit.
 - [x] A backup failure leaves the running process untouched.
 - [x] A dependency or setup failure does not restart the app.
 - [x] Every failure writes a concise status message and timestamp.
@@ -403,8 +403,8 @@ Target branch for VM updates: `main`
 - [x] Test disabled update endpoints.
 - [x] Test non-admin denial.
 - [x] Test clean no-update result.
-- [x] Test dirty worktree rejection in an isolated temporary repository.
-- [x] Test non-fast-forward rejection in an isolated temporary repository.
+- [x] Test dirty worktree cleanup in an isolated temporary repository.
+- [x] Test diverged-history replacement in an isolated temporary repository.
 - [x] Test concurrent request rejection.
 - [x] Test status file redaction and atomic replacement.
 - [x] Test the update flow against a disposable native VM or equivalent environment.
@@ -437,7 +437,7 @@ Target branch for VM updates: `main`
 - [x] Document lingering, localhost binding, reverse proxy, and HTTPS expectations.
 - [x] Document `AUTH_ENABLED=true` and `LOCALHOST_BYPASS=false` for VM deployment.
 - [x] Document explicit self-update opt-in.
-- [x] Document dirty-worktree and fast-forward requirements.
+- [x] Document destructive force-update behavior and preserved ignored paths.
 - [x] Document manual recovery after an update failure.
 
 ### Verification
@@ -490,11 +490,11 @@ Target branch for VM updates: `main`
 - [ ] Confirm it survives logout with lingering enabled.
 - [ ] Confirm update is unavailable while disabled.
 - [ ] Enable self-update and trigger a no-update run.
-- [ ] Trigger an update against a newer fast-forward commit.
+- [ ] Trigger an update against a newer remote commit.
 - [ ] Confirm backup creation.
 - [ ] Confirm dependencies and setup complete.
 - [ ] Confirm the service restarts on the target commit.
-- [ ] Confirm dirty worktree rejection.
+- [ ] Confirm dirty worktree cleanup and ignored-path preservation.
 
 ### Final review
 
@@ -751,7 +751,7 @@ Checks run:
 - `rtk bash -n scripts/update_odysseus install-service.sh` and `rtk sh -n scripts/update_odysseus` - passed
 - `rtk systemd-analyze --user verify` on generated user units - passed
 - `rtk git diff --check` - passed
-Result: Opt-in, admin-only native updates now reject dirty trees, branch mismatch, non-fast-forward history, and concurrent runs. Disposable Git repositories exercise the real installer and simulated service restart at the target commit. Preparation failures never restart the app.
+Result: Opt-in, admin-only native updates now force the checkout to the configured remote commit while preserving ignored runtime paths, and still reject branch mismatch and concurrent runs. Disposable Git repositories exercise dirty cleanup, diverged history, the real installer, and simulated service restart at the target commit. Preparation failures never restart the app.
 Blockers: None for Phase 7. A live VM update was not run; the disposable native-install harness is the equivalent verification environment.
 Next phase: Phase 8 - Updater UI and Deployment Documentation, only when requested.
 

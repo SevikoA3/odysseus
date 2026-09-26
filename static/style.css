@@ -18273,6 +18273,12 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
 .project-chats-header .confirm-btn { min-height: 32px; border-radius: 6px; }
 .project-file-list,
 .project-chat-list { display: grid; gap: 4px; }
+.project-chat-empty { display: flex; min-height: 210px; padding: 24px; box-sizing: border-box; flex-direction: column; align-items: center; justify-content: center; text-align: center; border: 1px dashed color-mix(in srgb, var(--border) 75%, transparent); border-radius: 8px; }
+.project-chat-empty-icon { display: grid; width: 42px; height: 42px; margin-bottom: 12px; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--fg) 7%, transparent); color: color-mix(in srgb, var(--fg) 72%, transparent); }
+.project-chat-empty-icon svg { width: 21px; height: 21px; }
+.project-chat-empty h6 { margin: 0; color: var(--fg); font-size: 14px; }
+.project-chat-empty p { margin: 5px 0 16px; color: color-mix(in srgb, var(--fg) 58%, transparent); font-size: 12px; }
+.project-chat-empty .confirm-btn { min-height: 36px; border-radius: 6px; }
 .project-file-row { border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); padding: 6px 8px; border-radius: 6px; transition: background 0.08s, border-color 0.08s; }
 .project-file-row:hover { border-color: var(--border); background: color-mix(in srgb, var(--fg) 4%, transparent); }
 .project-file-row > span { min-width: 0; flex: 1; }
@@ -18294,7 +18300,8 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   .project-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-actions { display: grid; }
   .project-actions .confirm-btn,
-  .project-chats-header .confirm-btn { min-height: 44px; }
+  .project-chats-header .confirm-btn,
+  .project-chat-empty .confirm-btn { min-height: 44px; }
   .project-file-row,
   .project-chat-row { min-height: 44px; box-sizing: border-box; }
   .current-project-name { max-width: 110px; }

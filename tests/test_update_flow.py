@@ -2,7 +2,7 @@
 
 Covers:
 - scripts/update_odysseus behavior via bash -n syntax check and isolated
-  disposable git repositories (dirty worktree, non-fast-forward, clean
+  disposable git repositories (forced dirty/diverged checkout, clean
   no-update, success path, backup failure, dependency failure).
 - routes/update_routes.py: disabled endpoints, non-admin denial, trigger
   argument array, concurrent request rejection, status payload.
@@ -153,16 +153,25 @@ def _advance_origin(clone, n=1):
 # ---------------------------------------------------------------------------
 
 
-def test_dirty_worktree_untracked_rejected(tmp_path):
+def test_dirty_worktree_untracked_is_discarded(tmp_path):
     tmpdir = str(tmp_path)
     _remote, clone = _init_repo_with_remote(tmpdir)
     with open(os.path.join(clone, "dirty.txt"), "w") as f:
         f.write("untracked\n")
-    proc = _run_update(clone)
-    assert proc.returncode != 0
-    status = _read_status(clone)
-    assert status["state"] == "failed"
-    assert "dirty" in status["message"].lower()
+    os.makedirs(os.path.join(clone, "data"))
+    with open(os.path.join(clone, "data", "keep.txt"), "w") as f:
+        f.write("ignored\n")
+    venvdir, bindir = _fake_tools(tmpdir, clone)
+    _fake_backup(tmpdir)
+    proc = _run_update(clone, {
+        "ODYSSEUS_VENV_DIR": venvdir,
+        "ODYSSEUS_BACKUP_CMD": os.path.join(bindir, "odysseus-backup"),
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+    })
+    assert proc.returncode == 0, proc.stderr
+    assert not os.path.exists(os.path.join(clone, "dirty.txt"))
+    assert open(os.path.join(clone, "data", "keep.txt")).read() == "ignored\n"
+    assert _read_status(clone)["state"] == "success"
 
 
 def test_update_script_disabled(tmp_path):
@@ -172,37 +181,49 @@ def test_update_script_disabled(tmp_path):
     assert _read_status(clone)["message"] == "Self-update is disabled"
 
 
-def test_dirty_tracked_worktree_rejected(tmp_path):
+def test_dirty_tracked_worktree_is_discarded(tmp_path):
     tmpdir = str(tmp_path)
     _remote, clone = _init_repo_with_remote(tmpdir)
     with open(os.path.join(clone, "requirements.txt"), "a") as f:
         f.write("# local change\n")
-    proc = _run_update(clone)
-    assert proc.returncode != 0
-    assert _read_status(clone)["state"] == "failed"
+    venvdir, bindir = _fake_tools(tmpdir, clone)
+    _fake_backup(tmpdir)
+    proc = _run_update(clone, {
+        "ODYSSEUS_VENV_DIR": venvdir,
+        "ODYSSEUS_BACKUP_CMD": os.path.join(bindir, "odysseus-backup"),
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+    })
+    assert proc.returncode == 0, proc.stderr
+    assert "local change" not in open(os.path.join(clone, "requirements.txt")).read()
+    assert _read_status(clone)["state"] == "success"
 
 
-def test_non_fast_forward_rejected(tmp_path):
+def test_non_fast_forward_is_forced_to_remote(tmp_path):
     tmpdir = str(tmp_path)
     remote, clone = _init_repo_with_remote(tmpdir)
     # Diverge: a new root commit is force-pushed to origin/main while local
-    # main stays on the old line, so origin/main is not a descendant of HEAD.
+    # main stays on the old line. The forced checkout must follow the remote.
     subprocess.run(["git", "-C", clone, "checkout", "--orphan", "diverged"], check=True)
     _git(clone, "add", "-A")
     _git(clone, "commit", "-q", "-m", "diverged root")
     _git(clone, "push", "-q", "--force", "origin", "diverged:refs/heads/main")
+    target = _git(clone, "rev-parse", "diverged")
     _git(clone, "checkout", "-q", "main")
-    # Provide a venv so the preflight passes and the run reaches the
-    # fast-forward check rather than failing earlier on the missing venv.
     venvdir, bindir = _fake_tools(tmpdir, clone)
+    _fake_backup(tmpdir)
     proc = _run_update(
         clone,
-        {"ODYSSEUS_VENV_DIR": venvdir, "PATH": f"{bindir}:{os.environ['PATH']}"},
+        {
+            "ODYSSEUS_VENV_DIR": venvdir,
+            "ODYSSEUS_BACKUP_CMD": os.path.join(bindir, "odysseus-backup"),
+            "PATH": f"{bindir}:{os.environ['PATH']}",
+        },
     )
-    assert proc.returncode != 0
+    assert proc.returncode == 0, proc.stderr
+    assert _git(clone, "rev-parse", "HEAD") == target
     status = _read_status(clone)
-    assert status["state"] == "failed"
-    assert "fast-forward" in status["message"].lower()
+    assert status["state"] == "success"
+    assert status["old_commit"] != status["target_commit"]
 
 
 def test_clean_no_update(tmp_path):
@@ -215,9 +236,9 @@ def test_clean_no_update(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     status = _read_status(clone)
-    assert status["state"] == "up_to_date"
-    # No restart, no pip run: fake tools never invoked.
-    assert not os.path.exists(os.path.join(tmpdir, "calls.log"))
+    assert status["state"] == "success"
+    assert status["message"] == "Already at target commit; service restarted"
+    assert "restart" in open(os.path.join(tmpdir, "calls.log")).read()
 
 
 def test_wrong_branch_rejected(tmp_path):
@@ -282,7 +303,7 @@ def test_status_replaced_atomically(tmp_path):
     old_inode = os.stat(status_file).st_ino
     proc = _run_update(clone, {"ODYSSEUS_VENV_DIR": venvdir, "PATH": f"{bindir}:{os.environ['PATH']}"})
     assert proc.returncode == 0
-    assert _read_status(clone)["state"] == "up_to_date"
+    assert _read_status(clone)["state"] == "success"
     assert os.stat(status_file).st_ino != old_inode
 
 
@@ -324,7 +345,7 @@ def test_backup_failure_aborts_before_merge(tmp_path):
     assert not os.path.exists(os.path.join(tmpdir, "calls.log"))
 
 
-def test_failing_dependency_install_does_not_restart(tmp_path):
+def test_failing_dependency_install_rolls_back_and_restarts(tmp_path):
     tmpdir = str(tmp_path)
     remote, clone = _init_repo_with_remote(tmpdir)
     old = _git(clone, "rev-parse", "HEAD")
@@ -332,9 +353,16 @@ def test_failing_dependency_install_does_not_restart(tmp_path):
 
     venvdir, bindir = _fake_tools(tmpdir, clone)
     _fake_backup(tmpdir)
-    # venv python that always fails (pip install fails).
+    # The new dependency install fails once; restoring old requirements succeeds.
     with open(os.path.join(venvdir, "bin", "python"), "w") as f:
-        f.write("#!/bin/sh\nexit 1\n")
+        f.write(
+            "#!/bin/sh\n"
+            f'count_file="{tmpdir}/pip-count"\n'
+            'count=$(cat "$count_file" 2>/dev/null || echo 0)\n'
+            'count=$((count + 1))\n'
+            'echo "$count" > "$count_file"\n'
+            '[ "$count" -gt 1 ]\n'
+        )
     os.chmod(os.path.join(venvdir, "bin", "python"), 0o755)
 
     proc = _run_update(
@@ -348,28 +376,40 @@ def test_failing_dependency_install_does_not_restart(tmp_path):
     assert proc.returncode != 0
     status = _read_status(clone)
     assert status["state"] == "failed"
-    assert "dependency" in status["message"].lower()
-    # No automatic rollback. The running app is never restarted.
-    assert _git(clone, "rev-parse", "HEAD") != old
-    assert not os.path.exists(os.path.join(tmpdir, "calls.log"))
+    assert status["message"] == "Dependency install failed; rolled back to previous commit"
+    assert _git(clone, "rev-parse", "HEAD") == old
+    assert "restart" in open(os.path.join(tmpdir, "calls.log")).read()
 
 
-def test_setup_failure_does_not_restart(tmp_path):
+def test_setup_failure_rolls_back_and_restarts(tmp_path):
     tmpdir = str(tmp_path)
     _remote, clone = _init_repo_with_remote(tmpdir)
+    old = _git(clone, "rev-parse", "HEAD")
     _advance_origin(clone)
     venvdir, bindir = _fake_tools(tmpdir, clone)
     _fake_backup(tmpdir)
     with open(os.path.join(bindir, "systemctl"), "w") as stream:
-        stream.write(f'#!/bin/sh\necho "$@" >> {tmpdir}/calls.log\n[ "$2" != enable ]\n')
+        stream.write(
+            "#!/bin/sh\n"
+            f'echo "$@" >> "{tmpdir}/calls.log"\n'
+            f'count_file="{tmpdir}/enable-count"\n'
+            'if [ "$2" = enable ]; then\n'
+            '  count=$(cat "$count_file" 2>/dev/null || echo 0)\n'
+            '  count=$((count + 1))\n'
+            '  echo "$count" > "$count_file"\n'
+            '  [ "$count" -gt 1 ] || exit 1\n'
+            'fi\n'
+            'exit 0\n'
+        )
     proc = _run_update(clone, {
         "ODYSSEUS_VENV_DIR": venvdir,
         "ODYSSEUS_BACKUP_CMD": os.path.join(bindir, "odysseus-backup"),
         "PATH": f"{bindir}:{os.environ['PATH']}",
     })
     assert proc.returncode != 0
-    assert _read_status(clone)["message"] == "Service setup failed"
-    assert "restart" not in open(os.path.join(tmpdir, "calls.log")).read()
+    assert _read_status(clone)["message"] == "Service setup failed; rolled back to previous commit"
+    assert _git(clone, "rev-parse", "HEAD") == old
+    assert "restart" in open(os.path.join(tmpdir, "calls.log")).read()
 
 
 def test_missing_backup_cmd_fails_clean(tmp_path):
@@ -560,9 +600,13 @@ def test_status_payload_reads_data_dir(tmp_path, update_routes_mod, monkeypatch)
 def test_status_payload_reports_current_commit(tmp_path, update_routes_mod, monkeypatch):
     import src.constants as constants
     monkeypatch.setattr(constants, "DATA_DIR", str(tmp_path))
-    commit = "a" * 40
-    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=commit + "\n"))
-    assert update_routes_mod._update_status_payload()["current_commit"] == commit
+    disk_commit = "a" * 40
+    running_commit = "b" * 40
+    monkeypatch.setattr(update_routes_mod, "_git_commit", lambda: disk_commit)
+    monkeypatch.setattr(update_routes_mod, "RUNNING_COMMIT", running_commit)
+    status = update_routes_mod._update_status_payload()
+    assert status["current_commit"] == disk_commit
+    assert status["running_commit"] == running_commit
 
 
 def test_status_payload_missing_file(tmp_path, update_routes_mod, monkeypatch):

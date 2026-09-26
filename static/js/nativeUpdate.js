@@ -9,19 +9,24 @@ function render(status) {
   const button = el('adm-nativeUpdateBtn');
   const message = el('adm-nativeUpdateStatus');
   const commit = el('adm-nativeUpdateCommit');
-  if (!button || !message || !commit) return;
+  const runningCommit = el('adm-nativeUpdateRunningCommit');
+  if (!button || !message || !commit || !runningCommit) return;
 
   if ('current_commit' in status) {
     commit.textContent = /^[0-9a-f]{40,64}$/.test(status.current_commit)
       ? status.current_commit.slice(0, 12) : 'Unavailable';
   } else if (commit.textContent === 'Loading…') commit.textContent = 'Unavailable';
+  if ('running_commit' in status) {
+    runningCommit.textContent = /^[0-9a-f]{40,64}$/.test(status.running_commit)
+      ? status.running_commit.slice(0, 12) : 'Unavailable';
+  } else if (runningCommit.textContent === 'Loading…') runningCommit.textContent = 'Unavailable';
 
   const state = status.state;
   message.dataset.state = state;
   if (state === 'disabled') message.textContent = 'Self-update is off. Set ODYSSEUS_SELF_UPDATE=true in .env and restart the service.';
   else if (state === 'running') message.textContent = 'Updating and restarting. Connection may pause briefly.';
   else if (state === 'success') message.textContent = 'Update completed. Service restarted.';
-  else if (state === 'up_to_date') message.textContent = 'Already up to date. No restart needed.';
+  else if (state === 'up_to_date') message.textContent = 'Already up to date.';
   else if (state === 'failed' && /^(Dirty worktree rejected|Non-fast-forward update rejected|Current branch differs from configured branch)$/.test(status.message)) {
     message.textContent = status.message;
   } else if (state === 'failed') message.textContent = 'Update failed. Check the update service journal.';
@@ -75,7 +80,7 @@ export function initNativeUpdate(confirm) {
     triggering = true;
     button.disabled = true;
     try {
-      if (!await confirm('Update Odysseus and restart the service? Active chats will disconnect.', { confirmText: 'Update & restart' })) return;
+      if (!await confirm('Update Odysseus and restart the service? This permanently discards local code changes and untracked files. Ignored data and .env files are kept. Active chats will disconnect.', { confirmText: 'Update & restart' })) return;
       reloadAfterUpdate = true;
       render({ state: 'running' });
       const response = await fetch('/api/admin/update', { method: 'POST', credentials: 'same-origin' });

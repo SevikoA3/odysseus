@@ -15,6 +15,22 @@ from src.owner_identity import auth_disabled
 
 SERVICE = "odysseus-update.service"
 STATUS_FIELDS = ("state", "message", "old_commit", "target_commit", "updated_at")
+REPOSITORY = os.path.dirname(os.path.dirname(__file__))
+
+def _git_commit():
+    try:
+        result = subprocess.run(
+            ["git", "-C", REPOSITORY, "rev-parse", "--verify", "HEAD"],
+            capture_output=True, text=True, timeout=3,
+        )
+        commit = result.stdout.strip()
+        if result.returncode == 0 and re.fullmatch(r"[0-9a-f]{40,64}", commit):
+            return commit
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+RUNNING_COMMIT = _git_commit()
 
 
 def _status_path():
@@ -51,16 +67,11 @@ def _status_payload():
 
 def _update_status_payload():
     status = _status_payload()
-    try:
-        result = subprocess.run(
-            ["git", "-C", os.path.dirname(os.path.dirname(__file__)), "rev-parse", "--verify", "HEAD"],
-            capture_output=True, text=True, timeout=3,
-        )
-        commit = result.stdout.strip()
-        if result.returncode == 0 and re.fullmatch(r"[0-9a-f]{40,64}", commit):
-            status["current_commit"] = commit
-    except (OSError, subprocess.TimeoutExpired):
-        pass
+    current_commit = _git_commit()
+    if current_commit:
+        status["current_commit"] = current_commit
+    if RUNNING_COMMIT:
+        status["running_commit"] = RUNNING_COMMIT
     return status
 
 

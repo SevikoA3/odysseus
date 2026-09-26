@@ -174,10 +174,13 @@ function renderSettings(data) {
       });
       projects = projects.map(item => item.id === updated.id ? updated : item);
       delete instructionsDrafts[project.id];
+      Object.assign(project, updated);
+      name.input.value = project.name || '';
+      instructions.input.value = project.instructions || '';
+      document.getElementById('projects-modal-title').textContent = project.name || 'Project';
       renderSidebar();
       syncSessionProject(sessionModule?.getPendingChat?.()?.projectId || sessionModule?.getSessions?.().find(session => session.id === sessionModule?.getCurrentSessionId?.())?.project_id);
       uiModule.showToast('Project saved');
-      await openProjectSettings(project.id);
     } catch (error) {
       uiModule.showError(`Project: ${detail(error, 'Could not save')}`);
     } finally {
@@ -307,7 +310,8 @@ function renderChats(data) {
 
   const chatsTitle = document.createElement('h5');
   chatsTitle.textContent = 'Chats';
-  const newChat = button('New chat', 'confirm-btn confirm-btn-secondary');
+  const hasChats = data.sessions.length > 0;
+  const newChat = button(hasChats ? 'New chat' : 'Start a chat', 'confirm-btn confirm-btn-secondary');
   newChat.addEventListener('click', async () => {
     setPending([newChat], true);
     try {
@@ -322,14 +326,23 @@ function renderChats(data) {
   });
   const chatsHeader = document.createElement('div');
   chatsHeader.className = 'project-chats-header';
-  chatsHeader.append(chatsTitle, newChat);
+  chatsHeader.append(chatsTitle);
+  if (hasChats) chatsHeader.append(newChat);
   body.appendChild(chatsHeader);
   const chats = document.createElement('div');
   chats.className = 'project-chat-list';
-  if (!data.sessions.length) {
+  if (!hasChats) {
     const empty = document.createElement('div');
-    empty.className = 'project-detail-state';
-    empty.textContent = 'No chats in this project';
+    empty.className = 'project-chat-empty';
+    const icon = document.createElement('div');
+    icon.className = 'project-chat-empty-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>';
+    const title = document.createElement('h6');
+    title.textContent = 'No chats yet';
+    const description = document.createElement('p');
+    description.textContent = 'Start the first chat in this project.';
+    empty.append(icon, title, description, newChat);
     chats.appendChild(empty);
   }
   data.sessions.forEach(session => {
@@ -403,9 +416,13 @@ function syncSessionProject(projectId) {
     label.className = 'current-project-name';
     label.type = 'button';
     label.addEventListener('click', async () => {
-      const session = sessionModule?.getSessions?.().find(item => item.id === sessionModule?.getCurrentSessionId?.());
+      const currentId = sessionModule?.getCurrentSessionId?.();
+      const pending = sessionModule?.getPendingChat?.();
+      const session = sessionModule?.getSessions?.().find(item => item.id === currentId)
+        || (currentId ? { id: currentId, project_id: label.dataset.projectId || null } : pending);
       if (!session) return;
-      if (session.project_id) openProject(session.project_id);
+      const sessionProjectId = session.project_id || session.projectId;
+      if (sessionProjectId) openProject(sessionProjectId);
       else {
         if (!projects.length) await loadProjects();
         openProjectPicker(session);
@@ -421,14 +438,19 @@ function syncSessionProject(projectId) {
       : 'Start a chat inside a project to use its files'
   );
   label.setAttribute('aria-label', label.title);
-  label.disabled = !sessionModule?.getSessions?.().some(session => session.id === sessionModule?.getCurrentSessionId?.());
+  label.dataset.projectId = projectId || '';
+  label.disabled = !sessionModule?.getCurrentSessionId?.() && !sessionModule?.getPendingChat?.();
 }
 
 async function moveSession(session, projectId) {
-  await request(`/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(session.id)}`, { method: 'POST' });
-  session.project_id = projectId;
-  sessionModule?.renderSessionList?.();
-  if (sessionModule?.getCurrentSessionId?.() === session.id) syncSessionProject(projectId);
+  if (session.id) {
+    await request(`/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(session.id)}`, { method: 'POST' });
+    session.project_id = projectId;
+    sessionModule?.renderSessionList?.();
+  } else {
+    session.projectId = projectId;
+  }
+  if (sessionModule?.getCurrentSessionId?.() === session.id || sessionModule?.getPendingChat?.() === session) syncSessionProject(projectId);
   uiModule.showToast('Chat moved to project');
 }
 

@@ -15,7 +15,7 @@ function makeElement(tag = 'div') {
   let text = '';
   let html = '';
   const element = {
-    tagName: tag.toUpperCase(), className: '', type: '', title: '', value: '',
+    tagName: tag.toUpperCase(), id: '', className: '', type: '', title: '', value: '',
     disabled: false, hidden: false, dataset: {}, style: {}, children: [],
     classList: makeClassList(), attributes: {},
     append(...nodes) { this.children.push(...nodes); },
@@ -23,6 +23,8 @@ function makeElement(tag = 'div') {
     addEventListener(type, handler) { this[`${type}Handler`] = handler; },
     setAttribute(name, value) { this.attributes[name] = value; },
     querySelector(selector) { return this.queries?.[selector] || null; },
+    remove() { this.removed = true; },
+    after(node) { elements.set(node.id, node); this.afterNode = node; },
     focus() {},
   };
   Object.defineProperty(element, 'textContent', {
@@ -33,12 +35,12 @@ function makeElement(tag = 'div') {
     get: () => html,
     set(value) {
       html = String(value);
-      if (!html.includes('projects-modal-title')) return;
+      if (!html.includes('projects-modal-title') && !html.includes('project-picker-title')) return;
       const title = makeElement('h4');
       const close = makeElement('button');
       const body = makeElement('div');
-      elements.set('projects-modal-title', title);
-      element.queries = { '.close-btn': close, '.project-modal-body': body };
+      if (html.includes('projects-modal-title')) elements.set('projects-modal-title', title);
+      element.queries = { '.close-btn': close, '.project-modal-body': body, '.modal-body': body };
     },
   });
   return element;
@@ -46,6 +48,7 @@ function makeElement(tag = 'div') {
 
 const projectList = makeElement();
 elements.set('project-list', projectList);
+elements.set('current-meta', makeElement());
 globalThis.document = {
   getElementById: id => elements.get(id) || null,
   createElement: tag => makeElement(tag),
@@ -61,10 +64,13 @@ const source = readFileSync(new URL('../static/js/projects.js', import.meta.url)
 const { default: projects } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 const requests = [];
-globalThis.fetch = async url => {
+let projectGetCount = 0;
+globalThis.fetch = async (url, options = {}) => {
   requests.push(url);
   if (url.endsWith('/api/projects/1')) {
-    return { ok: true, json: async () => ({ project: { id: '1', name: 'eps 6' }, files: [], sessions: [{ id: 's1', name: 'Chat one' }] }) };
+    if (options.method === 'PATCH') return { ok: true, json: async () => ({ id: '1', name: 'eps 6 updated', instructions: 'Saved' }) };
+    projectGetCount += 1;
+    return { ok: true, json: async () => ({ project: { id: '1', name: 'eps 6', instructions: '' }, files: [], sessions: projectGetCount === 1 ? [] : [{ id: 's1', name: 'Chat one' }] }) };
   }
   return { ok: true, json: async () => [{ id: '1', name: 'eps 6' }] };
 };
@@ -80,7 +86,8 @@ let modalBody = document.body.lastModal?.querySelector('.project-modal-body');
 const title = elements.get('projects-modal-title');
 assert.equal(title.textContent, 'eps 6');
 assert.ok(contains(modalBody, child => child.textContent === 'Chats'));
-assert.ok(contains(modalBody, child => child.textContent === 'Chat one'));
+assert.ok(contains(modalBody, child => child.textContent === 'No chats yet'));
+assert.ok(contains(modalBody, child => child.textContent === 'Start a chat'));
 
 sidebarRow = projectList.children[0];
 await sidebarRow.children[1].clickHandler();
@@ -88,4 +95,21 @@ modalBody = document.body.lastModal.querySelector('.project-modal-body');
 assert.equal(requests.filter(url => url.endsWith('/api/projects/1')).length, 2);
 assert.ok(modalBody.children.some(child => child.className === 'project-field'));
 assert.ok(modalBody.children.some(child => child.className === 'modal-footer project-actions'));
+const save = modalBody.children.find(child => child.className === 'modal-footer project-actions').children[0];
+await save.clickHandler();
+assert.equal(projectGetCount, 2);
+assert.equal(title.textContent, 'eps 6 updated');
+
+projects.init({
+  getSessions: () => [],
+  getCurrentSessionId: () => 's1',
+  getPendingChat: () => null,
+  renderSessionList() {},
+});
+projects.syncSessionProject(null);
+const projectLabel = elements.get('current-project-name');
+assert.equal(projectLabel.disabled, false);
+await projectLabel.clickHandler();
+const pickerBody = document.body.lastModal.querySelector('.modal-body');
+assert.ok(contains(pickerBody, child => child.textContent === 'eps 6 updated'));
 console.log('ok');
