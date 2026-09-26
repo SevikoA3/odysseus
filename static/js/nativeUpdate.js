@@ -1,6 +1,7 @@
 let polling = null;
 let loading = false;
 let triggering = false;
+let reloadAfterUpdate = false;
 
 const el = id => document.getElementById(id);
 
@@ -27,6 +28,12 @@ function render(status) {
   else if (state === 'forbidden') message.textContent = 'Admin access required.';
   else if (state === 'error') message.textContent = 'Could not reach update status. Retrying.';
   else message.textContent = 'Ready to check for updates.';
+
+  if (state === 'success' && reloadAfterUpdate) {
+    reloadAfterUpdate = false;
+    window.location.reload();
+    return;
+  }
 
   message.className = 'admin-toggle-sub';
   button.disabled = triggering || state === 'running' || state === 'disabled' || state === 'forbidden' || state === 'error';
@@ -69,6 +76,7 @@ export function initNativeUpdate(confirm) {
     button.disabled = true;
     try {
       if (!await confirm('Update Odysseus and restart the service? Active chats will disconnect.', { confirmText: 'Update & restart' })) return;
+      reloadAfterUpdate = true;
       render({ state: 'running' });
       const response = await fetch('/api/admin/update', { method: 'POST', credentials: 'same-origin' });
       if (response.status === 404) render({ state: 'disabled' });

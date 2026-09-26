@@ -18,7 +18,8 @@ const elements = Object.fromEntries(
     }]),
 );
 globalThis.document = { getElementById: id => elements[id] };
-globalThis.window = { _isAdmin: true };
+let reloads = 0;
+globalThis.window = { _isAdmin: true, location: { reload() { reloads += 1; } } };
 let poll;
 globalThis.setInterval = callback => { poll = callback; return 1; };
 globalThis.clearInterval = () => { poll = null; };
@@ -70,6 +71,7 @@ await button.click();
 assert.match(message.textContent, /Update completed/);
 assert.equal(button.disabled, false);
 assert.equal(calls.filter(([, method]) => method === 'POST').length, 1);
+assert.equal(reloads, 1);
 
 responses.push({ body: { state: 'failed', message: 'secret raw output' } });
 await refreshNativeUpdate();
