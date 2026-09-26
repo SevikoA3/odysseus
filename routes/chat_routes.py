@@ -18,6 +18,7 @@ from src.request_models import ChatRequest
 from src.llm_core import (
     _normalize_http_status,
     thinking_levels_for,
+    thinking_level_allowed,
     llm_call_async,
     llm_call_async_with_route_fallback,
     stream_llm,
@@ -769,15 +770,21 @@ def setup_chat_routes(
     @router.get("/api/thinking-levels")
     def thinking_levels(request: Request, url: str, model: str, tools: bool = False):
         require_api_token_scope(request, "chat")
-        return {"levels": thinking_levels_for(url, model, tools=tools)}
+        return {
+            "levels": thinking_levels_for(url, model, tools=tools),
+            "options": [
+                level for level in ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+                if thinking_level_allowed(url, model, level, tools=tools)
+            ],
+        }
 
     def validate_thinking_level(level: str, url: str, model: str, *, tools: bool = False) -> str:
         level = str(level or "auto").strip().lower()
         if len(level) > 12:
             raise HTTPException(400, "Invalid thinking level")
-        if level != "auto" and level not in thinking_levels_for(url, model, tools=tools):
+        if not thinking_level_allowed(url, model, level, tools=tools):
             raise HTTPException(400, f"Thinking level {level!r} is not supported by {model} on this route")
-        return level
+        return "auto" if level == "none" and level not in thinking_levels_for(url, model, tools=tools) else level
 
     # ------------------------------------------------------------------ #
     # POST /api/chat (non-streaming)

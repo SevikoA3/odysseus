@@ -2636,29 +2636,79 @@ body.bg-pattern-sparkles {
       flex-shrink: 0;
     }
     .thinking-level-control {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
+      position: relative;
+      flex-shrink: 0;
       color: var(--fg);
-      font-size: 11px;
     }
     .thinking-level-control[hidden] { display: none; }
-    .chat-container.compare-active .thinking-level-control { display: none; }
-    .thinking-level-control select {
-      max-width: 72px;
-      padding: 3px 2px;
-      border: 1px solid color-mix(in srgb, var(--fg) 55%, var(--panel));
-      border-radius: 4px;
-      background: var(--input-bg, var(--panel));
+    .thinking-level-control.open { z-index: 260; }
+    .thinking-level-control .thinking-level-trigger {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 28px;
+      padding: 0 9px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: transparent;
       color: var(--fg);
-      font: inherit;
+      cursor: pointer;
+      white-space: nowrap;
     }
-    .thinking-level-control select:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+    .thinking-level-control .thinking-level-trigger:not(:disabled):hover,
+    .thinking-level-control.open .thinking-level-trigger {
+      background: color-mix(in srgb, var(--fg) 8%, transparent);
+      border-color: var(--border);
+    }
+    .thinking-level-trigger:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+    .thinking-level-trigger:disabled { opacity: 0.45; cursor: default; }
+    .thinking-level-label { font-size: 11px; opacity: 0.55; }
+    .thinking-level-value { font-size: 11px; font-weight: 600; }
+    .thinking-level-chevron { flex-shrink: 0; opacity: 0.55; }
+    .thinking-level-control.open .thinking-level-chevron { transform: rotate(180deg); }
+    .thinking-level-control.open > .thinking-level-menu {
+      position: absolute;
+      right: 0;
+      bottom: calc(100% + 8px);
+      min-width: 138px;
+      max-height: min(240px, 60vh);
+      overflow-y: auto;
+      padding: 5px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+    }
+    .thinking-level-menu[hidden] { display: none; }
+    .thinking-level-menu .thinking-level-option {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      padding: 7px 9px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--fg);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 500;
+      text-align: left;
+    }
+    .thinking-level-option:hover,
+    .thinking-level-option[aria-pressed="true"] {
+      background: color-mix(in srgb, var(--fg) 10%, transparent);
+    }
+    .thinking-level-option[aria-pressed="true"]::after { content: '✓'; }
+    .thinking-level-option:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
+    .thinking-level-control select[hidden] { display: none; }
+    .chat-container.compare-active .thinking-level-control { display: none; }
     @media (pointer: coarse) {
-      .thinking-level-control select { min-height: 44px; }
+      .thinking-level-trigger { min-height: 44px; }
+      .thinking-level-option { min-height: 44px; }
     }
     @container chatbar (max-width: 260px) {
-      .thinking-level-control > span { display: none; }
+      .thinking-level-label { display: none; }
     }
     .input-icon-btn {
       background: none;

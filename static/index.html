@@ -1208,10 +1208,17 @@
           </button>
         </div>
         <div class="chat-input-right">
-          <label class="thinking-level-control" id="thinking-level-control" hidden>
-            <span>Thinking</span>
-            <select id="thinking-level" aria-label="Thinking level"><option value="auto">Auto</option></select>
-          </label>
+          <div class="thinking-level-control" id="thinking-level-control" title="Select a model to enable thinking level">
+            <button type="button" class="thinking-level-trigger" id="thinking-level-trigger" aria-expanded="false" aria-controls="thinking-level-menu" disabled>
+              <span class="thinking-level-label">Think</span>
+              <span class="thinking-level-value" id="thinking-level-value">None</span>
+              <svg class="thinking-level-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="thinking-level-menu" id="thinking-level-menu" role="group" aria-label="Thinking levels" hidden></div>
+            <select id="thinking-level" hidden aria-hidden="true" tabindex="-1" disabled>
+              <option value="none">None</option>
+            </select>
+          </div>
           <!-- Agent / Chat mode toggle -->
           <div class="mode-toggle">
             <button type="button" class="mode-toggle-btn active" id="mode-agent-btn" aria-pressed="true">Agent</button>

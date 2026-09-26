@@ -1262,7 +1262,7 @@ def thinking_levels_for(url: str, model: str, *, tools: bool = False) -> tuple[s
         return ("none", "low", "medium", "high")
     if provider not in {"openai", "chatgpt-subscription", "openrouter"}:
         return ()
-    if provider == "openai" and not _host_match(url, "openai.com"):
+    if provider == "openai" and not _host_match(url, "openai.com") and _is_self_hosted_openai_compatible(url):
         return ()
     if provider == "openrouter" and not model.lower().startswith("openai/"):
         return ()
@@ -1285,15 +1285,34 @@ def thinking_levels_for(url: str, model: str, *, tools: bool = False) -> tuple[s
         return ()
     if "-pro" in mid:
         return ()  # Pro models require the Responses API, not native Chat Completions.
-    if tools and provider == "openai" and _model_disallows_reasoning_effort_with_chat_tools(model):
+    if tools and provider == "openai" and _host_match(url, "openai.com") and _model_disallows_reasoning_effort_with_chat_tools(model):
         return ("none",)
-    if tools and provider == "openai" and is_family("gpt-6-astra"):
+    if tools and provider == "openai" and _host_match(url, "openai.com") and is_family("gpt-6-astra"):
         return ()
     return levels
 
 
+def thinking_level_allowed(url: str, model: str, level: str, *, tools: bool = False) -> bool:
+    """Permit explicit effort on compatible routes even when a model alias is unknown."""
+    known = thinking_levels_for(url, model, tools=tools)
+    if level in known or level in {"auto", "none"}:
+        return True
+    if level not in {"low", "medium", "high", "xhigh", "max"}:
+        return False
+    provider = _detect_provider(url)
+    if provider not in {"openai", "anthropic", "openrouter", "chatgpt-subscription", "mistral"}:
+        return False
+    if tools and provider == "openai" and _host_match(url, "openai.com"):
+        mid = model.lower().rsplit("/", 1)[-1]
+        if _model_disallows_reasoning_effort_with_chat_tools(model) or mid.startswith("gpt-6-astra"):
+            return False
+    return True
+
+
 def apply_thinking_level(payload: Dict, url: str, model: str, level: str, *, tools: bool = False) -> None:
-    if level == "auto" or level not in thinking_levels_for(url, model, tools=tools):
+    if level == "auto" or not thinking_level_allowed(url, model, level, tools=tools):
+        return
+    if level == "none" and level not in thinking_levels_for(url, model, tools=tools):
         return
     provider = _detect_provider(url)
     if provider == "anthropic":

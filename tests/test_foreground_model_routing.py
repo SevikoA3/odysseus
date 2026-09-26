@@ -266,6 +266,27 @@ async def test_chat_stream_forwards_accepted_thinking_level(monkeypatch, mode, l
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode,model", [
+    ("chat", "yr3/gpt-5.6-sol"),
+    ("agent", "yr3/gpt-5.6-sol"),
+    ("chat", "yr3/custom-alias"),
+])
+async def test_chat_stream_accepts_yonda_thinking_override(monkeypatch, mode, model):
+    captured = {}
+    endpoint = _chat_stream_endpoint(
+        monkeypatch, mode, captured,
+        endpoint_url="https://router.yonda.my.id/v1/chat/completions",
+        model=model, capture_thinking=True,
+    )
+    request = _RouteRequest(mode)
+    request._form["thinking_level"] = "high"
+    response = await endpoint(request)
+    async for _ in response.body_iterator:
+        pass
+    assert captured["thinking_level"] == "high"
+
+
+@pytest.mark.asyncio
 async def test_chat_stream_rejects_openai_agent_high_thinking(monkeypatch):
     endpoint = _chat_stream_endpoint(
         monkeypatch, "agent", {},

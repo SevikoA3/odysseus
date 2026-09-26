@@ -88,12 +88,42 @@ let _defaultPendingSeq = 0;
 let _thinkingRequestKey = '';
 const _thinkingLevelsCache = new Map();
 
+function _setThinkingMenuOpen(control, open) {
+  if (!control) return;
+  control.classList.toggle('open', open);
+  control.querySelector('#thinking-level-menu').hidden = !open;
+  control.querySelector('#thinking-level-trigger').setAttribute('aria-expanded', String(open));
+}
+
+function _syncThinkingLevel(select) {
+  const control = document.getElementById('thinking-level-control');
+  const menu = document.getElementById('thinking-level-menu');
+  const value = document.getElementById('thinking-level-value');
+  if (!control || !menu || !value) return;
+  value.textContent = select.selectedOptions[0]?.textContent || 'None';
+  document.getElementById('thinking-level-trigger').disabled = select.disabled;
+  if (select.disabled) _setThinkingMenuOpen(control, false);
+  menu.replaceChildren(...Array.from(select.options, option => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'thinking-level-option';
+    button.dataset.value = option.value;
+    button.textContent = option.textContent;
+    button.setAttribute('aria-pressed', String(option.value === select.value));
+    return button;
+  }));
+}
+
 async function _updateThinkingLevel(modelId, url) {
   const control = document.getElementById('thinking-level-control');
   const select = document.getElementById('thinking-level');
   if (!control || !select) return;
+  control.hidden = false;
   if (!modelId || !url) {
-    control.hidden = true;
+    select.replaceChildren(new Option('None', 'none'));
+    select.disabled = true;
+    _syncThinkingLevel(select);
+    control.title = 'Select a model to enable thinking level';
     _thinkingRequestKey = '';
     return;
   }
@@ -102,33 +132,31 @@ async function _updateThinkingLevel(modelId, url) {
   const key = `${url}::${modelId}::${!!tools}`;
   if (key === _thinkingRequestKey) return;
   _thinkingRequestKey = key;
-  control.hidden = true;
-  let levels = _thinkingLevelsCache.get(key);
-  if (!levels) {
+  select.replaceChildren(new Option('None', 'none'));
+  select.disabled = true;
+  _syncThinkingLevel(select);
+  control.title = 'Checking thinking support';
+  let capabilities = _thinkingLevelsCache.get(key);
+  let requestFailed = false;
+  if (!capabilities) {
     try {
       const params = new URLSearchParams({ url, model: modelId, tools: String(!!tools) });
       const response = await fetch(`${API_BASE}/api/thinking-levels?${params}`, { credentials: 'same-origin' });
       if (!response.ok) throw new Error('Thinking levels unavailable');
-      levels = (await response.json()).levels || [];
-      _thinkingLevelsCache.set(key, levels);
+      capabilities = await response.json();
+      _thinkingLevelsCache.set(key, capabilities);
     } catch {
-      if (_thinkingRequestKey === key) {
-        _thinkingRequestKey = '';
-        const unavailable = document.createElement('option');
-        unavailable.value = 'auto';
-        unavailable.textContent = 'Unavailable';
-        select.replaceChildren(unavailable);
-        select.disabled = true;
-        control.title = 'Thinking levels could not be loaded. Reselect the model to retry.';
-        control.hidden = false;
-      }
-      return;
+      if (_thinkingRequestKey !== key) return;
+      capabilities = { levels: [] };
+      requestFailed = true;
     }
   }
-  if (_thinkingRequestKey !== key || !levels.length) return;
+  if (_thinkingRequestKey !== key) return;
+  const levels = capabilities.levels || [];
+  const options = capabilities.options || [...new Set(['none', ...levels, 'low', 'medium', 'high', 'xhigh', 'max'])];
   select.replaceChildren();
-  select.disabled = false;
-  for (const value of ['auto', ...levels]) {
+  const defaultLevel = levels.includes('medium') ? 'medium' : 'none';
+  for (const value of options) {
     const option = document.createElement('option');
     option.value = value;
     option.textContent = value === 'auto' ? 'Auto' : value[0].toUpperCase() + value.slice(1);
@@ -136,12 +164,13 @@ async function _updateThinkingLevel(modelId, url) {
   }
   try {
     const saved = localStorage.getItem(`odysseus-thinking-level:${modelId}`);
-    select.value = levels.includes(saved) ? saved : 'auto';
-  } catch { select.value = 'auto'; }
-  control.title = tools && levels.length === 1 && levels[0] === 'none'
-    ? 'This OpenAI Chat Completions route supports only None with agent tools.'
+    select.value = options.includes(saved) ? saved : defaultLevel;
+  } catch { select.value = defaultLevel; }
+  select.disabled = false;
+  _syncThinkingLevel(select);
+  control.title = requestFailed ? 'Could not verify thinking levels; the endpoint may reject unsupported values.'
     : `Thinking effort for ${modelId}`;
-  control.hidden = false;
+  if (requestFailed) _thinkingRequestKey = '';
 }
 
 function _modelExists(modelId, url) {
@@ -251,13 +280,40 @@ export function initModelPicker(deps) {
   _deps = deps;
   _initModelPickerDropdown();
   const select = document.getElementById('thinking-level');
+  const control = document.getElementById('thinking-level-control');
+  const trigger = document.getElementById('thinking-level-trigger');
+  trigger?.addEventListener('click', () => {
+    _setThinkingMenuOpen(control, !control.classList.contains('open'));
+  });
+  document.getElementById('thinking-level-menu')?.addEventListener('click', e => {
+    const option = e.target.closest('.thinking-level-option');
+    if (!option || !select) return;
+    select.value = option.dataset.value;
+    select.dispatchEvent(new Event('change'));
+    _setThinkingMenuOpen(control, false);
+    trigger?.focus();
+  });
   select?.addEventListener('change', () => {
+    _syncThinkingLevel(select);
     const model = _deps.getSessions().find(s => s.id === _deps.getCurrentSessionId())?.model
       || _deps.getPendingChat()?.modelId;
     if (model) {
       try { localStorage.setItem(`odysseus-thinking-level:${model}`, select.value); } catch {}
     }
   });
+  document.addEventListener('pointerdown', e => {
+    if (control?.classList.contains('open') && !control.contains(e.target)) _setThinkingMenuOpen(control, false);
+  });
+  control?.addEventListener('focusout', e => {
+    if (!control.contains(e.relatedTarget)) _setThinkingMenuOpen(control, false);
+  });
+  control?.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || !control.classList.contains('open')) return;
+    _setThinkingMenuOpen(control, false);
+    trigger?.focus();
+    e.stopPropagation();
+  });
+  if (select) _syncThinkingLevel(select);
   for (const id of ['mode-agent-btn', 'mode-chat-btn']) {
     document.getElementById(id)?.addEventListener('click', () => setTimeout(updateModelPicker, 0));
   }

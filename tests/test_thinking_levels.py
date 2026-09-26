@@ -19,6 +19,8 @@ CLAUDE = "https://api.anthropic.com"
     (CLAUDE, "claude-opus-4-8", ("low", "medium", "high", "xhigh", "max")),
     (CLAUDE, "claude-sonnet-4-5", ()),
     ("http://localhost:8000/v1", "gpt-5.6-sol", ()),
+    ("https://proxy.example/v1", "yr3/gpt-5.6-sol", ("none", "low", "medium", "high", "xhigh", "max")),
+    ("https://proxy.example/v1", "yr3/unknown", ()),
 ])
 def test_levels_follow_provider_and_model(url, model, expected):
     assert llm_core.thinking_levels_for(url, model) == expected
@@ -34,6 +36,26 @@ def test_openai_agent_tools_only_offer_accepted_effort():
     assert "high" in llm_core.thinking_levels_for(
         "https://openrouter.ai/api/v1", "openai/gpt-5.6-sol", tools=True
     )
+    assert "high" in llm_core.thinking_levels_for(
+        "https://proxy.example/v1", "yr3/gpt-5.6-sol", tools=True
+    )
+    payload = {}
+    llm_core.apply_thinking_level(payload, "https://proxy.example/v1", "yr3/gpt-5.6-sol", "high")
+    assert payload["reasoning_effort"] == "high"
+
+
+def test_unknown_proxy_alias_can_force_thinking_without_changing_default():
+    url = "https://router.yonda.my.id/v1/chat/completions"
+    model = "yr3/custom-alias"
+    assert llm_core.thinking_levels_for(url, model) == ()
+    assert llm_core.thinking_level_allowed(url, model, "high")
+    payload = {}
+    llm_core.apply_thinking_level(payload, url, model, "high")
+    assert payload["reasoning_effort"] == "high"
+    payload = {}
+    llm_core.apply_thinking_level(payload, url, model, "none")
+    assert "reasoning_effort" not in payload
+    assert not llm_core.thinking_level_allowed(OPENAI, "gpt-5.6-sol", "high", tools=True)
 
 
 def test_claude_adaptive_payload_omits_temperature():
