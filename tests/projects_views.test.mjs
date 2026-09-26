@@ -39,8 +39,16 @@ function makeElement(tag = 'div') {
       const title = makeElement('h4');
       const close = makeElement('button');
       const body = makeElement('div');
+      const content = makeElement('div');
+      const header = makeElement('div');
       if (html.includes('projects-modal-title')) elements.set('projects-modal-title', title);
-      element.queries = { '.close-btn': close, '.project-modal-body': body, '.modal-body': body };
+      element.queries = {
+        '.close-btn': close,
+        '.modal-content': content,
+        '.modal-header': header,
+        '.project-modal-body': body,
+        '.modal-body': body,
+      };
     },
   });
   return element;
@@ -58,9 +66,11 @@ globalThis.document = {
 };
 globalThis.window = { location: { origin: 'http://test' } };
 globalThis.requestAnimationFrame = callback => callback();
+globalThis.projectDragCalls = [];
 
 const source = readFileSync(new URL('../static/js/projects.js', import.meta.url), 'utf8')
-  .replace("import uiModule from './ui.js';", "const uiModule = { isTouchInsideModal: () => false, showError() {}, showToast() {}, styledConfirm: async () => true, styledPrompt: async () => null };");
+  .replace("import uiModule from './ui.js';", "const uiModule = { isTouchInsideModal: () => false, showError() {}, showToast() {}, styledConfirm: async () => true, styledPrompt: async () => null };")
+  .replace("import { makeWindowDraggable } from './windowDrag.js';", "const makeWindowDraggable = (...args) => globalThis.projectDragCalls.push(args);");
 const { default: projects } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 const requests = [];
@@ -85,6 +95,10 @@ await sidebarRow.children[0].clickHandler();
 let modalBody = document.body.lastModal?.querySelector('.project-modal-body');
 const title = elements.get('projects-modal-title');
 assert.equal(title.textContent, 'eps 6');
+assert.equal(projectDragCalls.length, 1);
+assert.equal(projectDragCalls[0][0], document.body.lastModal);
+assert.equal(projectDragCalls[0][1].enableDock, false);
+assert.equal(projectDragCalls[0][1].enableResize, false);
 assert.ok(contains(modalBody, child => child.textContent === 'Chats'));
 assert.ok(contains(modalBody, child => child.textContent === 'No chats yet'));
 assert.ok(contains(modalBody, child => child.textContent === 'Start a chat'));
@@ -109,6 +123,7 @@ projects.init({
 projects.syncSessionProject(null);
 const projectLabel = elements.get('current-project-name');
 assert.equal(projectLabel.disabled, false);
+assert.equal(projectLabel.textContent, 'No project');
 await projectLabel.clickHandler();
 const pickerBody = document.body.lastModal.querySelector('.modal-body');
 assert.ok(contains(pickerBody, child => child.textContent === 'eps 6 updated'));

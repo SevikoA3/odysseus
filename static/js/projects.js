@@ -1,4 +1,5 @@
 import uiModule from './ui.js';
+import { makeWindowDraggable } from './windowDrag.js';
 
 const API = `${window.location.origin}/api`;
 let sessionModule = null;
@@ -111,6 +112,12 @@ function ensureModal() {
     if (event.key === 'Escape' && modal && !modal.classList.contains('hidden')) closeModal();
   });
   document.body.appendChild(modal);
+  makeWindowDraggable(modal, {
+    content: modal.querySelector('.modal-content'),
+    header: modal.querySelector('.modal-header'),
+    enableDock: false,
+    enableResize: false,
+  });
   return modal;
 }
 
@@ -431,7 +438,7 @@ function syncSessionProject(projectId) {
     current.after(label);
   }
   const name = projectName(projectId);
-  label.textContent = projectId ? ` · ${name || 'Project'}` : ' · No project';
+  label.textContent = projectId ? name || 'Project' : 'No project';
   label.title = projectId ? `Open project: ${name || 'Project'}` : (
     sessionModule?.getCurrentSessionId?.()
       ? 'Move this chat to a project to use its files'
