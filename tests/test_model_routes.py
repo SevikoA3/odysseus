@@ -1883,7 +1883,12 @@ async def test_probe_local_skips_tailscale_proxy_endpoint(monkeypatch):
 
 
 def test_background_refresh_deduplicates_same_base_url(monkeypatch):
-    ep1 = _route_ep("a", "http://127.0.0.1:8000/v1", endpoint_kind="local")
+    ep1 = _route_ep(
+        "a",
+        "http://127.0.0.1:8000/v1",
+        endpoint_kind="local",
+        pinned_models=["stale-model", "live-model"],
+    )
     ep2 = _route_ep("b", "http://127.0.0.1:8000/v1", endpoint_kind="local")
     db = _RouteDb([ep1, ep2])
     router = model_routes.setup_model_routes(model_discovery=None)
@@ -1909,6 +1914,7 @@ def test_background_refresh_deduplicates_same_base_url(monkeypatch):
     assert _wait_for(lambda: ep1.cached_models and ep2.cached_models)
     assert calls == ["http://127.0.0.1:8000/v1"]
     assert json.loads(ep1.cached_models) == ["live-model"]
+    assert json.loads(ep1.pinned_models) == ["live-model"]
     assert json.loads(ep2.cached_models) == ["live-model"]
 
 
@@ -2069,6 +2075,7 @@ def test_manual_refresh_uses_long_timeout_and_saves_full_model_list(monkeypatch)
         endpoint_kind="proxy",
         api_key="fake-key",
         refresh_mode="manual",
+        pinned_models=["removed-model", "provider/nested/model/id"],
     )
     db = _RouteDb([ep])
     router = model_routes.setup_model_routes(model_discovery=None)
@@ -2102,6 +2109,7 @@ def test_manual_refresh_uses_long_timeout_and_saves_full_model_list(monkeypatch)
         "timeout": 60.0,
     }]
     assert json.loads(ep.cached_models) == refreshed
+    assert json.loads(ep.pinned_models) == ["provider/nested/model/id"]
     assert db.commits == 1
     assert response.headers["X-Model-Refresh-Status"] == "refreshed"
     assert response.headers["X-Model-Refresh-Count"] == "3"
@@ -2150,6 +2158,7 @@ def test_manual_refresh_timeout_keeps_cached_models_and_warns(monkeypatch):
         endpoint_kind="proxy",
         api_key="fake-key",
         refresh_mode="manual",
+        pinned_models=["manual-only"],
     )
     db = _RouteDb([ep])
     router = model_routes.setup_model_routes(model_discovery=None)
@@ -2174,6 +2183,7 @@ def test_manual_refresh_timeout_keeps_cached_models_and_warns(monkeypatch):
 
     assert [m["id"] for m in result] == ["cached-model"]
     assert json.loads(ep.cached_models) == ["cached-model"]
+    assert json.loads(ep.pinned_models) == ["manual-only"]
     assert db.commits == 0
     assert response.headers["X-Model-Refresh-Status"] == "failed"
     assert "kept cached models" in response.headers["X-Model-Refresh-Warning"]

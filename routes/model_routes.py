@@ -1367,6 +1367,19 @@ def _picker_models_for_endpoint(ep, base_url: str, kind: str):
     ), pinned
 
 
+def _replace_endpoint_models(ep, model_ids) -> None:
+    """Replace the remote catalog and discard pins absent from it."""
+    models = _normalize_model_ids(model_ids)
+    ep.cached_models = json.dumps(models)
+    if _has_explicit_pinned_models(ep):
+        available = set(models)
+        ep.pinned_models = json.dumps([
+            model_id
+            for model_id in _normalize_model_ids(ep.pinned_models)
+            if model_id in available
+        ])
+
+
 def _api_key_fingerprint(api_key: Optional[str]) -> str:
     """Stable, non-secret label for distinguishing same-URL credentials."""
     key = (api_key or "").strip()
@@ -1514,7 +1527,7 @@ def setup_model_routes(model_discovery):
                                     for ep_id in endpoint_ids:
                                         ep_obj = db.query(ModelEndpoint).filter(ModelEndpoint.id == ep_id).first()
                                         if ep_obj:
-                                            ep_obj.cached_models = json.dumps(ids)
+                                            _replace_endpoint_models(ep_obj, ids)
                                             changed = True
                                     st["last_success"] = _time.time()
                                     st["fail_count"] = 0
@@ -1877,7 +1890,7 @@ def setup_model_routes(model_discovery):
                     try:
                         ep_obj = db2.query(ModelEndpoint).filter(ModelEndpoint.id == ep["id"]).first()
                         if ep_obj:
-                            ep_obj.cached_models = json.dumps(all_models)
+                            _replace_endpoint_models(ep_obj, all_models)
                             db2.commit()
                     finally:
                         db2.close()
@@ -2106,7 +2119,7 @@ def setup_model_routes(model_discovery):
                         timeout=_explicit_model_list_timeout(base_url, existing_kind_for_probe, refresh_timeout),
                     )
                     if probed_models:
-                        existing.cached_models = json.dumps(probed_models)
+                        _replace_endpoint_models(existing, probed_models)
                         changed = True
                 if changed:
                     _db_dedup.commit()
@@ -2294,7 +2307,7 @@ def setup_model_routes(model_discovery):
                 if ep_obj:
                     ep_obj.hidden_models = json.dumps(failed) if failed else None
                     if all_models:
-                        ep_obj.cached_models = json.dumps(all_models)
+                        _replace_endpoint_models(ep_obj, all_models)
                     db2.commit()
             finally:
                 db2.close()
@@ -2334,7 +2347,7 @@ def setup_model_routes(model_discovery):
                     probed = []
                 if probed:
                     all_models = probed
-                    ep.cached_models = json.dumps(all_models)
+                    _replace_endpoint_models(ep, all_models)
                     db.commit()
                     _invalidate_models_cache()
                     response.headers["X-Model-Refresh-Status"] = "refreshed"
