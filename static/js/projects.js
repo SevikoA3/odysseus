@@ -60,10 +60,18 @@ function renderSidebar(state = '') {
     return;
   }
   projects.forEach(project => {
-    const row = button(project.name || 'Untitled project', 'list-item project-list-item');
-    row.title = project.name || 'Untitled project';
-    row.dataset.projectId = project.id;
-    row.addEventListener('click', () => openProject(project.id));
+    const row = document.createElement('div');
+    row.className = 'project-sidebar-row';
+    const open = button(project.name || 'Untitled project', 'list-item project-list-item');
+    open.title = project.name || 'Untitled project';
+    open.dataset.projectId = project.id;
+    open.addEventListener('click', () => openProject(project.id));
+    const settings = button('Settings', 'project-settings-btn');
+    settings.title = `Settings for ${project.name || 'project'}`;
+    settings.setAttribute('aria-label', settings.title);
+    settings.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 1.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5v.1h-2.6v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1-1.8-1.8.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H6.4v-2.6h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 1.8-1.8.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5v-.1H15v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1 1.8 1.8-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1v2.6h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
+    settings.addEventListener('click', () => openProjectSettings(project.id));
+    row.append(open, settings);
     list.appendChild(row);
   });
 }
@@ -137,7 +145,7 @@ function makeField(labelText, value, multiline = false) {
   return { wrap, input };
 }
 
-function renderDetail(data) {
+function renderSettings(data) {
   const body = showModal();
   const project = data.project;
   activeProjectId = project.id;
@@ -169,7 +177,7 @@ function renderDetail(data) {
       renderSidebar();
       syncSessionProject(sessionModule?.getPendingChat?.()?.projectId || sessionModule?.getSessions?.().find(session => session.id === sessionModule?.getCurrentSessionId?.())?.project_id);
       uiModule.showToast('Project saved');
-      await openProject(project.id);
+      await openProjectSettings(project.id);
     } catch (error) {
       uiModule.showError(`Project: ${detail(error, 'Could not save')}`);
     } finally {
@@ -231,7 +239,7 @@ function renderDetail(data) {
       try {
         await request(`/projects/${encodeURIComponent(project.id)}/files/${encodeURIComponent(file.upload_id)}`, { method: 'DELETE' });
         uiModule.showToast('File removed');
-        await openProject(project.id);
+        await openProjectSettings(project.id);
       } catch (error) {
         uiModule.showError(`File: ${detail(error, 'Could not remove')}`);
       } finally {
@@ -259,7 +267,7 @@ function renderDetail(data) {
         });
       }
       uiModule.showToast('Files attached');
-      await openProject(project.id);
+      await openProjectSettings(project.id);
     } catch (error) {
       uploadStatus.textContent = `Upload failed: ${detail(error, 'Unknown error')}`;
       uiModule.showError('Project file upload failed');
@@ -287,6 +295,15 @@ function renderDetail(data) {
     fileInput.value = '';
     uploadFiles(selected);
   });
+
+}
+
+function renderChats(data) {
+  const body = showModal();
+  const project = data.project;
+  activeProjectId = project.id;
+  document.getElementById('projects-modal-title').textContent = project.name || 'Project';
+  body.textContent = '';
 
   const chatsTitle = document.createElement('h5');
   chatsTitle.textContent = 'Chats';
@@ -332,13 +349,25 @@ async function openProject(projectId) {
   try {
     const data = await request(`/projects/${encodeURIComponent(projectId)}`);
     if (activeProjectId !== projectId) return;
-    renderDetail(data);
+    renderChats(data);
     request('/projects').then(items => {
       projects = items;
       renderSidebar();
     }).catch(() => {});
   } catch (error) {
     showDetailState(`Unable to load project: ${detail(error, 'Unknown error')}`);
+  }
+}
+
+async function openProjectSettings(projectId) {
+  activeProjectId = projectId;
+  showDetailState('Loading project settings…');
+  try {
+    const data = await request(`/projects/${encodeURIComponent(projectId)}`);
+    if (activeProjectId !== projectId) return;
+    renderSettings(data);
+  } catch (error) {
+    showDetailState(`Unable to load project settings: ${detail(error, 'Unknown error')}`);
   }
 }
 
@@ -356,7 +385,7 @@ async function createProject() {
     projects.unshift(project);
     renderSidebar();
     uiModule.showToast('Project created');
-    openProject(project.id);
+    openProjectSettings(project.id);
   } catch (error) {
     uiModule.showError(`Project: ${detail(error, 'Could not create')}`);
   } finally {
