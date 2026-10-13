@@ -79,7 +79,6 @@ class PresetUpdateRequest(BaseModel):
     )
     system_prompt: str = Field(
         "",
-        max_length=10000,
         description="System prompt to guide assistant behavior (empty = default)"
     )
     inject_prefix: str = Field(
